@@ -1,0 +1,3328 @@
+# processing long digging data
+process_digging_long <- function(digging_long_file) {
+  # Load the necessary libraries
+  library(dplyr)
+  library(readr)
+  
+  # Read the CSV file
+  T_digging_long <- read_csv(digging_long_file)
+  
+  # Mutate the Trial column based on SafeValue
+  T_digging_long <- T_digging_long %>%
+    mutate(Trial = case_when(
+      SafeValue > 0 ~ "Gain",
+      SafeValue < 0 ~ "Loss",
+      TRUE ~ NA_character_))  # Handling the case when SafeValue == 0
+  
+  
+  
+  # multiplying RawHappiness by 100
+  
+  T_digging_long$RawHappy = T_digging_long$RawHappy*100
+  
+  
+  T_digging_long <- T_digging_long %>%
+    arrange(userKey, TrialNumber)
+  
+  # Return the processed and sorted data
+  return(T_digging_long)
+}
+
+# process z-scored data
+# processing long digging data
+process_digging_long_z <- function(digging_long_file) {
+  # Load the necessary libraries
+  library(dplyr)
+  library(readr)
+  
+  # Read the CSV file
+  T_digging_long <- read_csv(digging_long_file)
+  
+  # Mutate the Trial column based on SafeValue
+  T_digging_long <- T_digging_long %>%
+    mutate(Trial = case_when(
+      SafeValue > 0 ~ "Gain",
+      SafeValue < 0 ~ "Loss",
+      TRUE ~ NA_character_))  # Handling the case when SafeValue == 0
+  
+  # Calculate variance and filter out users with zero variance
+  
+  T_digging_long <- T_digging_long %>%
+    group_by(userKey) %>%
+    summarise(Variance = var(zHappy, na.rm = TRUE)) %>%
+    filter(Variance != 0) %>%
+    left_join(T_digging_long, by = "userKey")
+  
+  # Filtering out users who either always chose the risky option, or always chose the safe option
+  
+  T_digging_long <- T_digging_long %>%
+    group_by(userKey) %>%
+    filter(sum(Choice == 2, na.rm = TRUE) > 0 & sum(Choice == 1, na.rm = TRUE) > 0) %>%
+    ungroup()
+
+  
+  T_digging_long <- T_digging_long %>%
+    arrange(userKey, TrialNumber)
+  
+  # Return the processed and sorted data
+  return(T_digging_long)
+}
+
+
+
+# survey data
+process_survey_data <- function(T_digging_long, survey_file) {
+  library(dplyr)
+  library(readr)
+  
+  T_survey <- read_csv(survey_file)
+  
+  # Select the first 18 columns from the survey data
+  T_survey <- T_survey %>% 
+    dplyr::select(1:18)
+  
+  # Merge the survey data with the digging long data by userKey
+  T_digging_long <- merge(T_digging_long, T_survey, by = "userKey")
+  
+  # Filter out rows where phq8_total is NA
+  T_digging_long <- T_digging_long %>%
+    filter(!is.na(phq8_total))
+  
+
+  # Return the processed data and counts of unique userKeys
+  return(T_digging_long)
+}
+
+
+
+# model data
+process_params <- function(T_digging_long, happy_file_multi) {
+  params <- read_csv(happy_file_multi)
+  
+  params_multi <- params %>%
+    rename(
+      ev_chosen_multi = b_evrpe_1,
+      rpe_chosen_multi = b_evrpe_2,
+      tau_multi= b_evrpe_3,
+      const1_multi = b_evrpe_4,
+      const2_multi = b_evrpe_5,
+      r2_multi = r2,
+      sse_multi = sse,
+      aic_multi = aic,
+      bic_multi =bic
+    )
+  
+  T_digging_long <- merge(T_digging_long, params_multi,by="userKey")
+  
+ # T_digging_long$ev_chosen_multi <- T_digging_long$ev_chosen_multi*100
+  #T_digging_long$rpe_chosen_multi <- T_digging_long$rpe_chosen_multi*100
+  return(T_digging_long)
+  
+}
+
+# z-scored
+process_params_z <- function(T_digging_long, happy_file_multi) {
+  params <- read_csv(happy_file_multi)
+  
+  params_multi <- params %>%
+    rename(
+      ev_chosen_multi_z = b_evrpe_1,
+      rpe_chosen_multi_z = b_evrpe_2,
+      tau_multi_z= b_evrpe_3,
+      const1_multi_z = b_evrpe_4,
+     # const2_multi_z = b_evrpe_5,
+      r2_multi_z = r2,
+      sse_multi_z = sse,
+      aic_multi_z = aic,
+      bic_multi_z =bic
+    )
+  
+  T_digging_long <- merge(T_digging_long, params_multi,by="userKey")
+  
+  #T_digging_long$ev_chosen_multi_z <- T_digging_long$ev_chosen_multi_z*100
+  #T_digging_long$rpe_chosen_multi_z <- T_digging_long$rpe_chosen_multi_z*100
+  return(T_digging_long)
+  
+}
+
+# GAD PHQ correlation across plays
+calc_rGADPHQ <- function(happyData, play_number) {
+  # Filter data for the specified Play
+  data_filtered <- happyData %>% filter(PlayNo == play_number)
+  
+
+  # Create summary
+  summary <- data_filtered %>%
+    group_by(userKey) %>%
+    summarise(PHQ_score = first(phq8_total),
+              GAD_score = first(gad7_total))
+  
+
+  # Perform Spearman correlation test
+  correlation <- cor.test(summary$PHQ_score, summary$GAD_score, method = "spearman")
+  
+  # Debugging step: Print correlation results
+  print(correlation)
+  
+  # Create the plot
+  plot <- ggplot(data = summary, aes(x = PHQ_score, y = GAD_score)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) + 
+    ggtitle(paste("rho =", round(correlation$estimate, 2), 
+                  ", p =", format(correlation$p.value, digits = 3), 
+                  "(N =", nrow(summary), ")")) +
+    labs(x = "Depression (PHQ)", y = "Anxiety (GAD)") + 
+    theme_minimal() +
+    poster_theme
+  
+  # Distribution of Happiness Ratings
+  dist <- data_filtered %>%
+    group_by(userKey) %>%
+    summarise(mean_Happy_filled = mean(Happy_filled, na.rm=TRUE))
+  
+  dist_plot <- ggplot(dist, aes(x=mean_Happy_filled)) +
+    geom_histogram(fill="lightblue",color="black" ) +
+    theme_minimal() +
+    ggtitle(paste("Distribution of Raw Happiness Ratings (N=",nrow(dist),")")) +
+    labs(x="Raw Happiness",y="Frequency") +
+    poster_theme
+  
+  # SD Happiness against Mean Happiness
+  summary_2 <- data_filtered %>%
+    group_by(userKey) %>%
+    summarise(mean_Happy_filled = mean(Happy_filled, na.rm=TRUE),
+              sd_Happy_filled = sd(Happy_filled,na.rm=TRUE),
+              GAD = first(gad7_total),
+              PHQ = first(phq8_total))
+  
+  plot2 <- ggplot(summary_2, aes(x=mean_Happy_filled,y=sd_Happy_filled)) +
+    geom_point() +
+    theme_minimal() +
+    xlab("Mean Happiness") +
+    ylab("SD Happiness") + 
+    poster_theme
+  
+  return(list(plot = plot, correlation = correlation, dist_plot = dist_plot, plot2 = plot2))
+}
+
+
+# Correlation between PHQ, GAD and Gambling Behavior
+
+summarize_and_correlate <- function(data, play_number, trial_type) {
+  # Filter data for the specified Play and Trial type
+  filtered_data_2 <- data %>% filter(PlayNo == play_number, Trial == trial_type)
+  
+  # Summarize the data
+  summary_data <- filtered_data_2 %>%
+    group_by(userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(), #will equal the number of rows left for that userKey after filtering by specific Play and Trial Type (e.g., Play 1, Gain Domain will be 14)
+      percent_gamble = (gamble_decisions / total_decisions) * 100,
+      GAD_score = mean(gad7_total,na.rm=TRUE),
+      PHQ_score = mean(phq8_total,na.rm=TRUE),
+      SD_Happy_filled = sd(Happy_filled, na.rm = TRUE),
+      Mean_Happy_filled = mean(Happy_filled, na.rm = TRUE)
+    ) %>%
+    na.omit()
+  
+
+  if (nrow(summary_data) < 3) {
+    stop("Not enough summarized data to perform correlation analysis.")
+  }
+  
+  # Calculate sample size
+  sample_size <- nrow(summary_data)
+  cat("Sample size:", sample_size, "\n")
+  
+  # Calculate correlations
+  cor_gamble_GAD <- tryCatch(
+    cor.test(summary_data$percent_gamble, summary_data$GAD_score, method = "spearman"),
+    error = function(e) {
+      cat("Error in correlation calculation for GAD score:", e$message, "\n")
+      return(NULL)
+    }
+  )
+  
+  cor_gamble_PHQ <- tryCatch(
+    cor.test(summary_data$percent_gamble, summary_data$PHQ_score, method = "spearman"),
+    error = function(e) {
+      cat("Error in correlation calculation for PHQ score:", e$message, "\n")
+      return(NULL)
+    }
+  )
+  
+  results <- data.frame(
+    Play = play_number,
+    Trial = trial_type,
+    Measure = c("GAD", "PHQ"),
+    rho = c(round(cor_gamble_GAD$estimate, 2), 
+            round(cor_gamble_PHQ$estimate, 2)),
+    p_value = c(format(cor_gamble_GAD$p.value, digits = 3), 
+                format(cor_gamble_PHQ$p.value, digits = 3))
+  )
+  return(results)
+}
+
+# z-scored
+summarize_and_correlate_z <- function(data, play_number, trial_type) {
+  # Filter data for the specified Play and Trial type
+  filtered_data_2 <- data %>% filter(PlayNo == play_number, Trial == trial_type)
+  
+  # Summarize the data
+  summary_data <- filtered_data_2 %>%
+    group_by(userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(), #will equal the number of rows left for that userKey after filtering by specific Play and Trial Type (e.g., Play 1, Gain Domain will be 14)
+      percent_gamble = (gamble_decisions / total_decisions) * 100,
+      GAD_score = mean(gad7_total,na.rm=TRUE),
+      PHQ_score = mean(phq8_total,na.rm=TRUE),
+      SD_Happy_filled = sd(zHappy_filled, na.rm = TRUE),
+      Mean_Happy_filled = mean(zHappy_filled, na.rm = TRUE)
+    ) %>%
+    na.omit()
+  
+  
+  if (nrow(summary_data) < 3) {
+    stop("Not enough summarized data to perform correlation analysis.")
+  }
+  
+  # Calculate sample size
+  sample_size <- nrow(summary_data)
+  cat("Sample size:", sample_size, "\n")
+  
+  # Calculate correlations
+  cor_gamble_GAD <- tryCatch(
+    cor.test(summary_data$percent_gamble, summary_data$GAD_score, method = "spearman"),
+    error = function(e) {
+      cat("Error in correlation calculation for GAD score:", e$message, "\n")
+      return(NULL)
+    }
+  )
+  
+  cor_gamble_PHQ <- tryCatch(
+    cor.test(summary_data$percent_gamble, summary_data$PHQ_score, method = "spearman"),
+    error = function(e) {
+      cat("Error in correlation calculation for PHQ score:", e$message, "\n")
+      return(NULL)
+    }
+  )
+  
+  results <- data.frame(
+    Play = play_number,
+    Trial = trial_type,
+    Measure = c("GAD", "PHQ"),
+    rho = c(round(cor_gamble_GAD$estimate, 2), 
+            round(cor_gamble_PHQ$estimate, 2)),
+    p_value = c(format(cor_gamble_GAD$p.value, digits = 3), 
+                format(cor_gamble_PHQ$p.value, digits = 3))
+  )
+  return(results)
+}
+
+# Function to calculate % gambling (based on gender)
+summarize_gambling_behavior <- function(data, play_number, gender_group = NULL) {
+  # Filter data for the specified Play and Gender group if provided
+  filtered_data <- data %>%
+    filter(PlayNo == play_number)
+  
+  if (!is.null(gender_group)) {
+    filtered_data <- filtered_data %>% filter(gender_group == gender_group)
+  }
+  
+  # Summarize the data by Trial type (Gain and Loss)
+  summary_data <- filtered_data %>%
+    group_by(Trial, userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100
+    ) %>%
+    group_by(Trial) %>%
+    summarise(
+      mean_percent_gamble = mean(percent_gamble, na.rm = TRUE),
+      se_percent_gamble = sd(percent_gamble, na.rm = TRUE) / sqrt(n())
+    )
+  
+  # Add Play number and Gender group to the summary data
+  summary_data <- summary_data %>%
+    mutate(
+      Play = play_number,
+      Gender = ifelse(is.null(gender_group), "All", gender_group)
+    )
+  
+  return(summary_data)
+}
+
+
+# Function to summarize and correlate SD_Happy_filled with GAD and PHQ
+summarize_and_correlate_happiness <- function(data, play_number = NULL, trial_type = NULL, overall = FALSE) {
+  if (overall) {
+    # For overall correlation, filter only by play number and ignore trial type
+    if (!is.null(play_number)) {
+      filtered_data <- data %>% filter(PlayNo == play_number)
+    } else {
+      stop("Play number must be provided for overall calculations.")
+    }
+  } else {
+    # Filter data for the specified Play and Trial type if provided
+    if (!is.null(play_number) & !is.null(trial_type)) {
+      filtered_data <- data %>% filter(PlayNo == play_number, Trial == trial_type)
+    } else {
+      stop("Both play number and trial type must be provided for non-overall calculations.")
+    }
+  }
+  
+  # Check if there's enough data to perform the analysis
+  if (nrow(filtered_data) < 3) {
+    stop("Not enough data to perform correlation analysis.")
+  }
+  
+  # Summarize the data
+  summary_data <- filtered_data %>%
+    group_by(userKey) %>%
+    summarise(
+      sd_Happy_filled = sd(Happy_filled, na.rm = TRUE), #uses backfilled happiness ratings
+      GAD_score = mean(gad7_total, na.rm = TRUE),
+      PHQ_score = mean(phq8_total, na.rm = TRUE),
+     rsd_HappyRating = relSD_tc(HappyRating *100, 0, 100)
+    ) %>%
+    na.omit()
+  
+  # Check if there's enough data in the summary to perform correlation analysis
+  if (nrow(summary_data) < 3) {
+    stop("Not enough summarized data to perform correlation analysis.")
+  }
+  
+  # Calculate sample size
+  sample_size <- nrow(summary_data)
+  cat("Sample size:", sample_size, "\n")
+  
+  # Calculate correlations
+  cor_PHQ_sd <- tryCatch(
+    cor.test(summary_data$sd_Happy_filled, summary_data$PHQ_score, method = "spearman"),
+    error = function(e) NULL
+  )
+  
+  cor_PHQ_rsd <- tryCatch(
+    cor.test(summary_data$rsd_HappyRating, summary_data$PHQ_score, method="spearman"),
+    error = function(e) NULL
+  )
+  
+  cor_GAD_sd <- tryCatch(
+    cor.test(summary_data$sd_Happy_filled, summary_data$GAD_score, method = "spearman"),
+    error = function(e) NULL
+  )
+  
+  cor_GAD_rsd <- tryCatch(
+    cor.test(summary_data$rsd_HappyRating, summary_data$GAD_score, method = "spearman"),
+    error = function(e) NULL
+ )
+  
+  results <- data.frame(
+    Play = as.character(if (!overall) play_number else paste("Overall Play", play_number)),
+    Trial = as.character(if (!overall) trial_type else "Overall"),
+    Measure = rep(c("GAD", "PHQ"), each = 2),
+    SD_Type = rep(c("Raw", "Relative"), times = 2),
+    
+    rho = c(if (!is.null(cor_GAD_sd)) round(cor_GAD_sd$estimate, 2) else NA, 
+            if (!is.null(cor_GAD_rsd)) round(cor_GAD_rsd$estimate, 2) else NA,
+            if (!is.null(cor_PHQ_sd)) round(cor_PHQ_sd$estimate, 2) else NA,
+            if (!is.null(cor_PHQ_rsd)) round(cor_PHQ_rsd$estimate, 2) else NA),
+    p_value = c(if (!is.null(cor_GAD_sd)) format(cor_GAD_sd$p.value, digits = 3) else NA, 
+                c(if (!is.null(cor_GAD_rsd)) format(cor_GAD_rsd$p.value, digits = 3) else NA, 
+                if (!is.null(cor_PHQ_sd)) format(cor_PHQ_sd$p.value, digits = 3) else NA,
+                if (!is.null(cor_PHQ_rsd)) format(cor_PHQ_rsd$p.value, digits = 3) else NA))
+  
+  )
+  
+  return(results)
+}
+
+# z-scored happiness
+summarize_and_correlate_z_happiness <- function(data, play_number = NULL, trial_type = NULL, overall = FALSE) {
+  if (overall) {
+    # For overall correlation, filter only by play number and ignore trial type
+    if (!is.null(play_number)) {
+      filtered_data <- data %>% filter(PlayNo == play_number)
+    } else {
+      stop("Play number must be provided for overall calculations.")
+    }
+  } else {
+    # Filter data for the specified Play and Trial type if provided
+    if (!is.null(play_number) & !is.null(trial_type)) {
+      filtered_data <- data %>% filter(PlayNo == play_number, Trial == trial_type)
+    } else {
+      stop("Both play number and trial type must be provided for non-overall calculations.")
+    }
+  }
+  
+  # Check if there's enough data to perform the analysis
+  if (nrow(filtered_data) < 3) {
+    stop("Not enough data to perform correlation analysis.")
+  }
+  
+  # Summarize the data
+  summary_data <- filtered_data %>%
+    group_by(userKey) %>%
+    summarise(
+      z_Happy_filled = mean(zHappy_filled,na.rm=TRUE),
+      GAD_score = mean(gad7_total, na.rm = TRUE),
+      PHQ_score = mean(phq8_total, na.rm = TRUE),
+    ) %>%
+    na.omit()
+  
+  # Check if there's enough data in the summary to perform correlation analysis
+  if (nrow(summary_data) < 3) {
+    stop("Not enough summarized data to perform correlation analysis.")
+  }
+  
+  # Calculate sample size
+  sample_size <- nrow(summary_data)
+  cat("Sample size:", sample_size, "\n")
+  
+  # Calculate correlations
+  cor_PHQ_zHappy <- tryCatch(
+    cor.test(summary_data$z_Happy_filled, summary_data$PHQ_score, method = "spearman"),
+    error = function(e) NULL
+  )
+  
+  cor_GAD_zHappy <- tryCatch(
+    cor.test(summary_data$z_Happy_filled, summary_data$GAD_score, method = "spearman"),
+    error = function(e) NULL
+  )
+  
+  
+  results <- data.frame(
+    Play = if (!overall) as.character(play_number) else paste("Overall Play", play_number),
+    Trial = if (!overall) as.character(trial_type) else "Overall",
+    Measure = c("GAD", "PHQ"),
+    rho = c(if (!is.null(cor_GAD_zHappy)) round(cor_GAD_zHappy$estimate, 2) else NA,
+            if (!is.null(cor_PHQ_zHappy)) round(cor_PHQ_zHappy$estimate, 2) else NA),
+    p_value = c(if (!is.null(cor_GAD_zHappy)) format(cor_GAD_zHappy$p.value, digits = 3) else NA,
+                if (!is.null(cor_PHQ_zHappy)) format(cor_PHQ_zHappy$p.value, digits = 3) else NA)
+  )
+  
+  return(results)
+}
+
+
+# summarize play data raw
+# summarize play 1 and 2 data
+summarize_play_data <- function(data, play_number) {
+  data %>%
+    filter(PlayNo == play_number) %>%
+    group_by(userKey) %>%
+    summarise(
+      mean_Happy_filled = mean(Happy_filled, na.rm = TRUE),
+      sd_Happy_filled = sd(Happy_filled, na.rm = TRUE),
+      rsd_Happy_filled = relSD_tc(HappyRating*100, 0, 100),
+      mean_Happy_filled_loss = mean(Happy_filled[Trial == "Loss"], na.rm = TRUE),
+      sd_Happy_filled_loss = sd(Happy_filled[Trial == "Loss"], na.rm = TRUE),
+      rsd_Happy_filled_loss = relSD_tc(HappyRating[Trial == "Loss"]*100, 0, 100),
+      GAD_score = first(gad7_total),
+      PHQ_score = first(phq8_total),
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100,
+      const = first(const1_multi),
+      tau = first(tau_multi),
+      rpe = first(rpe_chosen_multi),
+      ev = first(ev_chosen_multi)
+    ) %>%
+    na.omit() %>%
+    mutate(
+      GAD_bin = cut(GAD_score, breaks = c(-Inf, 4, 9, 14, 21), labels = c("0-4", "5-9", "10-14", "15-21")),
+      PHQ_bin = cut(PHQ_score, breaks = c(-Inf, 4, 9, 14, 24), labels = c("0-4", "5-9", "10-14", "15-24"))
+    )
+}
+
+# summarize play 1 and 2 data
+summarize_play_data_z <- function(data, play_number) {
+  data %>%
+    filter(PlayNo == play_number) %>%
+    group_by(userKey) %>%
+    summarise(
+      mean_Happy_filled = mean(zHappy_filled, na.rm = TRUE),
+      sd_Happy_filled = sd(zHappy_filled, na.rm = TRUE),
+      rsd_Happy_filled = relSD_tc(zHappy, -2, 2),
+      mean_Happy_filled_loss = mean(zHappy_filled[Trial == "Loss"], na.rm = TRUE),
+      sd_Happy_filled_loss = sd(zHappy_filled[Trial == "Loss"], na.rm = TRUE),
+      rsd_Happy_filled_loss = relSD_tc(zHappy[Trial == "Loss"], -2, 2),
+      GAD_score = first(gad7_total),
+      PHQ_score = first(phq8_total),
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100,
+      const = first(const1_multi_z),
+      tau = first(tau_multi_z),
+      rpe = first(rpe_chosen_multi_z),
+      ev = first(ev_multi_z)
+    ) %>%
+    na.omit() %>%
+    mutate(
+      GAD_bin = cut(GAD_score, breaks = c(-Inf, 4, 9, 14, 21), labels = c("0-4", "5-9", "10-14", "15-21")),
+      PHQ_bin = cut(PHQ_score, breaks = c(-Inf, 4, 9, 14, 24), labels = c("0-4", "5-9", "10-14", "15-24"))
+    )
+}
+
+
+# GAD SD Plot
+plot_gad_sd <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_sd_Happy_filled = mean(sd_Happy_filled, na.rm = TRUE),
+      sem_sd_Happy_filled = sd(sd_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_sd_Happy_filled = mean(sd_Happy_filled, na.rm = TRUE),
+      sem_sd_Happy_filled = sd(sd_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = GAD_bin, y = mean_sd_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_sd_Happy_filled - sem_sd_Happy_filled, ymax = mean_sd_Happy_filled + sem_sd_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Anxiety (GAD Score)",
+      x = "Anxiety (GAD score)",
+      y = "Happiness Std. Deviation"
+    ) +
+    theme_minimal() +
+    ylim(0.85,0.925)+ #this is for z-scored
+    poster_theme +
+    scale_color_manual(values = c("Play 1" = "#009D83", "Play 2" = "#8BD7D2")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+
+# GAD SD Loss only
+plot_gad_sd_loss <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_sd_Happy_filled = mean(sd_Happy_filled_loss, na.rm = TRUE),
+      sem_sd_Happy_filled = sd(sd_Happy_filled_loss, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_sd_Happy_filled = mean(sd_Happy_filled_loss, na.rm = TRUE),
+      sem_sd_Happy_filled = sd(sd_Happy_filled_loss, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = GAD_bin, y = mean_sd_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_sd_Happy_filled - sem_sd_Happy_filled, ymax = mean_sd_Happy_filled + sem_sd_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Anxiety (GAD Score) LOSS",
+      x = "Anxiety (GAD score)",
+      y = "Happiness Std. Deviation"
+    ) +
+    theme_minimal() +
+    poster_theme +
+    ylim(0.85,0.925)+ #this is for z-scored
+    scale_color_manual(values = c("Play 1" = "#009D83", "Play 2" = "#8BD7D2")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+
+# GAD RSD Plot
+plot_gad_rsd <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_rsd_Happy_filled = mean(rsd_Happy_filled, na.rm = TRUE),
+      sem_rsd_Happy_filled = sd(rsd_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_rsd_Happy_filled = mean(rsd_Happy_filled, na.rm = TRUE),
+      sem_rsd_Happy_filled = sd(rsd_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = GAD_bin, y = mean_rsd_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_rsd_Happy_filled - sem_rsd_Happy_filled, ymax = mean_rsd_Happy_filled + sem_rsd_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Anxiety (GAD Score)",
+      x = "Anxiety (GAD score)",
+      y = "Happiness Rel. Std. Deviation"
+    ) +
+    theme_minimal() +
+    ylim(0.2,0.3)+
+    poster_theme +
+    scale_color_manual(values = c("Play 1" = "#009D83", "Play 2" = "#8BD7D2")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+
+# GAD RSD loss
+plot_gad_rsd_loss <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_rsd_Happy_filled = mean(rsd_Happy_filled_loss, na.rm = TRUE),
+      sem_rsd_Happy_filled = sd(rsd_Happy_filled_loss, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_rsd_Happy_filled = mean(rsd_Happy_filled_loss, na.rm = TRUE),
+      sem_rsd_Happy_filled = sd(rsd_Happy_filled_loss, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = GAD_bin, y = mean_rsd_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_rsd_Happy_filled - sem_rsd_Happy_filled, ymax = mean_rsd_Happy_filled + sem_rsd_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Anxiety (GAD Score) LOSS",
+      x = "Anxiety (GAD score)",
+      y = "Happiness Rel. Std. Deviation"
+    ) +
+    theme_minimal() +
+    ylim(0.2,0.3)+
+    poster_theme +
+    scale_color_manual(values = c("Play 1" = "#009D83", "Play 2" = "#8BD7D2")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+
+# PHQ SD Plot
+plot_phq_sd <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_sd_Happy_filled = mean(sd_Happy_filled, na.rm = TRUE),
+      sem_sd_Happy_filled = sd(sd_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_sd_Happy_filled = mean(sd_Happy_filled, na.rm = TRUE),
+      sem_sd_Happy_filled = sd(sd_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = PHQ_bin, y = mean_sd_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_sd_Happy_filled - sem_sd_Happy_filled, ymax = mean_sd_Happy_filled + sem_sd_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Depression (PHQ Score)",
+      x = "Depression (PHQ Score)",
+      y = "Happiness Std. Deviation"
+    ) +
+    theme_minimal() +
+    ylim(0.85,0.925)+ #this is for z-scored
+    poster_theme  +
+    scale_color_manual(values = c("Play 1" = "red", "Play 2" = "pink")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+
+# PHQ SD LOSS plot
+plot_phq_sd_loss <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_sd_Happy_filled = mean(sd_Happy_filled_loss, na.rm = TRUE),
+      sem_sd_Happy_filled = sd(sd_Happy_filled_loss, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_sd_Happy_filled = mean(sd_Happy_filled_loss, na.rm = TRUE),
+      sem_sd_Happy_filled = sd(sd_Happy_filled_loss, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = PHQ_bin, y = mean_sd_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_sd_Happy_filled - sem_sd_Happy_filled, ymax = mean_sd_Happy_filled + sem_sd_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Depression (PHQ Score) LOSS",
+      x = "Depression (PHQ Score)",
+      y = "Happiness Std. Deviation"
+    ) +
+    theme_minimal() +
+    poster_theme  +
+    scale_color_manual(values = c("Play 1" = "red", "Play 2" = "pink")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+
+# PHQ RSD Plot
+plot_phq_rsd <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_rsd_Happy_filled = mean(rsd_Happy_filled, na.rm = TRUE),
+      sem_rsd_Happy_filled = sd(rsd_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_rsd_Happy_filled = mean(rsd_Happy_filled, na.rm = TRUE),
+      sem_rsd_Happy_filled = sd(rsd_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = PHQ_bin, y = mean_rsd_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_rsd_Happy_filled - sem_rsd_Happy_filled, ymax = mean_rsd_Happy_filled + sem_rsd_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Depression (PHQ Score)",
+      x = "Depression (PHQ Score)",
+      y = "Happiness Rel. Std. Deviation"
+    ) +
+    theme_minimal() +
+    ylim(0.2,0.3)+
+    poster_theme  +
+    scale_color_manual(values = c("Play 1" = "red", "Play 2" = "pink")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+
+# PHQ RSD LOSS
+plot_phq_rsd_loss <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_rsd_Happy_filled = mean(rsd_Happy_filled_loss, na.rm = TRUE),
+      sem_rsd_Happy_filled = sd(rsd_Happy_filled_loss, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_rsd_Happy_filled = mean(rsd_Happy_filled_loss, na.rm = TRUE),
+      sem_rsd_Happy_filled = sd(rsd_Happy_filled_loss, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = PHQ_bin, y = mean_rsd_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_rsd_Happy_filled - sem_rsd_Happy_filled, ymax = mean_rsd_Happy_filled + sem_rsd_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Depression (PHQ Score) LOSS",
+      x = "Depression (PHQ Score)",
+      y = "Happiness Rel. Std. Deviation"
+    ) +
+    theme_minimal() +
+    poster_theme  +
+    scale_color_manual(values = c("Play 1" = "red", "Play 2" = "pink")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+
+# GAD z-scored
+plot_gad_zhappy <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_z_Happy_filled = mean(mean_Happy_filled, na.rm = TRUE),
+      sem_z_Happy_filled = sd(mean_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(GAD_bin) %>%
+    summarise(
+      mean_z_Happy_filled = mean(mean_Happy_filled, na.rm = TRUE),
+      sem_z_Happy_filled = sd(mean_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = GAD_bin, y = mean_z_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_z_Happy_filled - sem_z_Happy_filled, ymax = mean_z_Happy_filled + sem_z_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Anxiety (GAD Score)",
+      x = "Anxiety (GAD score)",
+      y = "z-scored Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.03,0.03) + 
+    
+    poster_theme +
+    scale_color_manual(values = c("Play 1" = "#009D83", "Play 2" = "#8BD7D2")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+
+# PHQ z-scored
+plot_phq_zhappy <- function(play1_data, play2_data) {
+  summary_stats <- play1_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_z_Happy_filled = mean(mean_Happy_filled, na.rm = TRUE),
+      sem_z_Happy_filled = sd(mean_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 1")
+  
+  summary_stats_2 <- play2_data %>%
+    group_by(PHQ_bin) %>%
+    summarise(
+      mean_z_Happy_filled = mean(mean_Happy_filled, na.rm = TRUE),
+      sem_z_Happy_filled = sd(mean_Happy_filled, na.rm = TRUE) / sqrt(n())
+    ) %>%
+    mutate(Play = "Play 2")
+  
+  combined_stats <- bind_rows(summary_stats, summary_stats_2)
+  
+  ggplot(combined_stats, aes(x = PHQ_bin, y = mean_z_Happy_filled, color = Play, group = Play)) +
+    geom_point(aes(shape = Play), size = 3) +
+    geom_errorbar(aes(ymin = mean_z_Happy_filled - sem_z_Happy_filled, ymax = mean_z_Happy_filled + sem_z_Happy_filled),
+                  width = 0.2) +
+    geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+    labs(
+      title = "Mood Variation by Anxiety (PHQ Score)",
+      x = "Anxiety (PHQ score)",
+      y = "z-scored Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.03,0.03) + 
+    poster_theme +
+    scale_color_manual(values = c("Play 1" = "red", "Play 2" = "pink")) +
+    scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+}
+# Function to calculate relative standard deviation within plays
+
+# Mean
+mean_tc <- function(x) {
+  
+  # Remove nas and calculate mean 
+  mean_x = mean(x, na.rm = T)
+  return(mean_x)
+}
+
+# SD
+sd_tc <- function(x) {
+  
+  # Remove nas and calculate standard deviation
+  sd_x = sd(x, na.rm = T)
+  return(sd_x)
+}
+
+# SD*
+max_var <- function(mean, min, max, n) {
+  
+  # Compute the maximum possible variability given the mean
+  
+  # Extreme cases where mean = min or max
+  if (mean == min || mean == max) {
+    mv = 0
+  }
+  
+  # Normal cases
+  else {
+    # Determining number of elements at each bound which maximize variance
+    # Basically determining number of mins vs number of maxs 
+    n_max <- floor((n*mean - n*min) / (max - min)) # number of tc ratings at max value
+    n_min <- n - 1 - n_max                      # number of tc ratings at min value
+    
+    m <- n*mean - n_min*min - n_max*max
+    mv <- (n_min*(min - mean)^2 + n_max*(max - mean)^2 + (mean - m)^2) / (n - 1)
+  }
+  
+  return(mv)
+}
+
+relSD_tc <- function(x, min, max) {
+  
+  mean_x <- mean_tc(x)
+  sd_x <- sd_tc(x)
+  n <- length(x)
+  
+  # compute maximum possible sd given mean
+  mv <- max_var(mean_x, min, max, n)
+  msd <- sqrt(mv) 
+  
+  # compute relative sd (will be a proportion)
+  rsd <- sd_x / msd
+  
+  return(rsd)
+}
+
+
+### Functions for Happiness x Choice x Outcome
+
+# happiness by outcome
+winvloss_happy <- function(data, trial_type, choice_type) {
+  
+  # Filter data based on trial type
+  filtered_data <- data %>%
+    filter(Trial == trial_type)
+  
+  # Filter data based on choice type and classify outcomes as win or loss
+  if (choice_type == "Risky") {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 2) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == RiskyValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  } else {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 1) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == SafeValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  }
+  
+  # Summarize happiness by user and outcome type
+  happiness_summary_user <- filtered_data %>%
+    group_by(userKey, OutcomeType) %>%
+    summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE), .groups = 'drop') %>%
+    pivot_wider(names_from = OutcomeType, values_from = mean_happiness, values_fill = 0) %>%
+    mutate(happiness_diff = Win - Loss)
+  
+  # Merge with distinct PHQ and GAD scores
+  merged_data <- happiness_summary_user %>%
+    left_join(data %>% dplyr::select(userKey, PHQ_score = phq8_total, GAD_score = gad7_total) %>% distinct(), by = "userKey") %>%
+    na.omit()
+  
+  # Convert to long format for plotting
+  merged_data_long <- merged_data %>% 
+    pivot_longer(cols = c(Loss, Win), names_to = "OutcomeType", values_to = "Happiness")
+  
+  # Summarize mean and standard error for plotting
+  summary_long <- merged_data_long %>%
+    group_by(OutcomeType) %>%
+    summarise(mean_happiness = mean(Happiness, na.rm=TRUE),
+              se_happiness = sd(Happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Calculate mean predicted happiness
+  pred_happy <- filtered_data %>%
+    group_by(OutcomeType) %>%
+    summarise(mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop')
+  
+  # Wilcoxon signed-rank test
+  wilcox_test <- wilcox.test(merged_data$Win, merged_data$Loss, paired = TRUE)
+  
+  # Plotting
+  plot <- ggplot(summary_long, aes(x = OutcomeType, y = mean_happiness, fill = OutcomeType)) +
+    geom_bar(stat = "identity", position = position_dodge(), width = 0.7, color = "black") +
+    geom_errorbar(aes(ymin = mean_happiness - se_happiness, ymax = mean_happiness + se_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(data = pred_happy, aes(x = OutcomeType, y = mean_pred_happiness), 
+               color = "lightblue", shape = 8, size = 3) +
+    labs(
+      title = paste("Average Happiness for", choice_type, "Choices in", trial_type, "Domain"),
+      x = "Outcome Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() + 
+    poster_theme + 
+    ylim(0, 80)
+  
+  list(summary_long = summary_long, 
+       wilcox_test = wilcox_test, 
+       plot = plot)
+}
+
+#z-scored
+winvloss_z_happy <- function(data, trial_type, choice_type) {
+  
+  # Filter data based on trial type
+  filtered_data <- data %>%
+    filter(Trial == trial_type)
+  
+  # Filter data based on choice type and classify outcomes as win or loss
+  if (choice_type == "Risky") {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 2) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == RiskyValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  } else {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 1) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == SafeValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  }
+  
+  # Summarize happiness by user and outcome type
+  happiness_summary_user <- filtered_data %>%
+    group_by(userKey, OutcomeType) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE), .groups = 'drop') %>%
+    pivot_wider(names_from = OutcomeType, values_from = mean_happiness, values_fill = 0) %>%
+    mutate(happiness_diff = Win - Loss)
+  
+  # Merge with distinct PHQ and GAD scores
+  merged_data <- happiness_summary_user %>%
+    left_join(data %>% dplyr::select(userKey, PHQ_score = phq8_total, GAD_score = gad7_total) %>% distinct(), by = "userKey") %>%
+    na.omit()
+  
+  # Convert to long format for plotting
+  merged_data_long <- merged_data %>% 
+    pivot_longer(cols = c(Loss, Win), names_to = "OutcomeType", values_to = "Happiness")
+  
+  # Summarize mean and standard error for plotting
+  summary_long <- merged_data_long %>%
+    group_by(OutcomeType) %>%
+    summarise(mean_happiness = mean(Happiness, na.rm=TRUE),
+              se_happiness = sd(Happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Calculate mean predicted happiness
+  pred_happy <- filtered_data %>%
+    group_by(OutcomeType) %>%
+    summarise(mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop')
+  
+  # Wilcoxon signed-rank test
+  wilcox_test <- wilcox.test(merged_data$Win, merged_data$Loss, paired = TRUE)
+  
+  # Plotting
+  plot <- ggplot(summary_long, aes(x = OutcomeType, y = mean_happiness, fill = OutcomeType)) +
+    geom_bar(stat = "identity", position = position_dodge(), width = 0.7, color = "black") +
+    geom_errorbar(aes(ymin = mean_happiness - se_happiness, ymax = mean_happiness + se_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(data = pred_happy, aes(x = OutcomeType, y = mean_pred_happiness), 
+               color = "lightblue", shape = 8, size = 3) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Dotted line at 50
+    labs(
+      title = paste("Average Happiness for", choice_type, "Choices in", trial_type, "Domain"),
+      x = "Outcome Type",
+      y = "z-scored Happiness"
+    ) +
+    theme_minimal() + 
+    ylim(-0.75, 1) +
+    poster_theme 
+
+  list(summary_long = summary_long, 
+       wilcox_test = wilcox_test, 
+       plot = plot)
+}
+
+# residuals
+#z-scored
+winvloss_z_happy_resid <- function(data, trial_type, choice_type) {
+  
+  # Filter data based on trial type
+  filtered_data <- data %>%
+    filter(Trial == trial_type)
+  
+  # Filter data based on choice type and classify outcomes as win or loss
+  if (choice_type == "Risky") {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 2) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == RiskyValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  } else {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 1) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == SafeValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  }
+  
+  # Calculate residuals (actual - predicted)
+  filtered_data <- filtered_data %>%
+    mutate(Residual = zHappy - zHappyPred)
+  
+  # Summarize residuals by user and outcome type
+  residual_summary_user <- filtered_data %>%
+    group_by(userKey, OutcomeType) %>%
+    summarise(mean_residual = mean(Residual, na.rm = TRUE), .groups = 'drop') %>%
+    pivot_wider(names_from = OutcomeType, values_from = mean_residual, values_fill = 0) %>%
+    mutate(residual_diff = Win - Loss)
+  
+  # Merge with distinct PHQ and GAD scores
+  merged_data <- residual_summary_user %>%
+    left_join(data %>% dplyr::select(userKey, PHQ_score = phq8_total, GAD_score = gad7_total) %>% distinct(), by = "userKey") %>%
+    na.omit()
+  
+  # Convert to long format for plotting
+  merged_data_long <- merged_data %>% 
+    pivot_longer(cols = c(Loss, Win), names_to = "OutcomeType", values_to = "Residual")
+  
+  # Summarize mean and standard error for plotting
+  summary_long <- merged_data_long %>%
+    group_by(OutcomeType) %>%
+    summarise(mean_residual = mean(Residual, na.rm=TRUE),
+              se_residual = sd(Residual, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Wilcoxon signed-rank test
+  wilcox_test <- wilcox.test(merged_data$Win, merged_data$Loss, paired = TRUE)
+  
+  # Plotting residuals
+  plot <- ggplot(summary_long, aes(x = OutcomeType, y = mean_residual, color = OutcomeType)) +
+    geom_point(position = position_dodge(0.7), size = 1) +  # Points instead of bars
+    geom_errorbar(aes(ymin = mean_residual - se_residual, ymax = mean_residual + se_residual),
+                  position = position_dodge(0.7), width = 0.2) +
+    labs(
+      title = paste("Residuals of Happiness for", choice_type, "Choices in", trial_type, "Domain"),
+      x = "Outcome Type",
+      y = "Residual Happiness (Actual - Predicted)"
+    ) +
+    theme_minimal() + 
+    ylim(-0.2,0.2)+
+    poster_theme +
+    scale_color_manual(values = c("Win" = "gold", "Loss" = "coral"))  # Optional: Customize colors if desired
+  
+  
+  list(summary_long = summary_long, 
+       wilcox_test = wilcox_test, 
+       plot = plot)
+}
+
+
+# winvloss by GAD
+winvloss_happy_GAD <- function(data, trial_type, choice_type) {
+  
+  # Filter data based on trial type and choice type
+  filtered_data <- data %>%
+    filter(Trial == trial_type)
+  
+  if (choice_type == "Risky") {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 2) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == RiskyValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  } else {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 1) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == SafeValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  }
+  
+  
+  # Summarize happiness by user, outcome type, and GAD category
+  happiness_summary_user <- filtered_data %>%
+    group_by(userKey, OutcomeType, GAD_category) %>%
+    summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE), .groups = 'drop') %>%
+    pivot_wider(names_from = OutcomeType, values_from = mean_happiness, values_fill = 0) %>%
+    mutate(happiness_diff = Win - Loss)
+  
+  # Merge with distinct PHQ and GAD scores
+  merged_data <- happiness_summary_user %>%
+    left_join(data %>% dplyr::select(userKey, PHQ_score = phq8_total, GAD_score = gad7_total) %>% distinct(), by = "userKey") %>%
+    na.omit()
+  
+  # Convert to long format for plotting
+  merged_data_long <- merged_data %>%
+    pivot_longer(cols = c(Loss, Win), names_to = "OutcomeType", values_to = "Happiness")
+  
+  # Summarize mean and standard error for plotting
+  summary_long <- merged_data_long %>%
+    group_by(OutcomeType, GAD_category) %>%
+    summarise(mean_happiness = mean(Happiness, na.rm = TRUE),
+              se_happiness = sd(Happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Calculate mean predicted happiness
+  pred_happy <- filtered_data %>%
+    group_by(OutcomeType, GAD_category) %>%
+    summarise(mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop')
+  
+  pred_happy <- na.omit(pred_happy)
+  
+  # Wilcoxon signed-rank test for each GAD group
+  wilcox_test_gad6plus <- wilcox.test(merged_data$Win[merged_data$GAD_category == "GAD 6+"],
+                                      merged_data$Loss[merged_data$GAD_category == "GAD 6+"],
+                                      paired = TRUE)
+  wilcox_test_gad_less6 <- wilcox.test(merged_data$Win[merged_data$GAD_category == "GAD < 6"],
+                                       merged_data$Loss[merged_data$GAD_category == "GAD < 6"],
+                                       paired = TRUE)
+  
+  # Plotting
+  plot <- ggplot(summary_long, aes(x = OutcomeType, y = mean_happiness, fill = GAD_category)) +
+    geom_bar(stat = "identity", position = position_dodge(0.7), width = 0.7, color = "black") +
+    geom_errorbar(aes(ymin = mean_happiness - se_happiness, ymax = mean_happiness + se_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(data = pred_happy, aes(x = OutcomeType, y = mean_pred_happiness, group = GAD_category), 
+               color = "lightblue", shape = 8, size = 3, position = position_dodge(0.7)) +
+    scale_fill_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = paste("Average Happiness for", choice_type, "Choices in", trial_type, "Domain"),
+      x = "Outcome Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() + 
+    poster_theme + 
+    ylim(0, 80)
+  
+  list(summary_long = summary_long, 
+       wilcox_test_gad_less6 = wilcox_test_gad_less6,
+       wilcox_test_gad6plus = wilcox_test_gad6plus,
+       plot = plot)
+}
+
+# z-scored winvloss by GAD
+winvloss_z_happy_GAD <- function(data, trial_type, choice_type) {
+  
+  # Filter data based on trial type and choice type
+  filtered_data <- data %>%
+    filter(Trial == trial_type)
+  
+  if (choice_type == "Risky") {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 2) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == RiskyValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  } else {
+    filtered_data <- filtered_data %>%
+      filter(Choice == 1) %>%
+      mutate(OutcomeType = ifelse((trial_type == "Gain" & Outcome == SafeValue) | 
+                                    (trial_type == "Loss" & Outcome == 0), "Win", "Loss"))
+  }
+  
+  # using GAD Binary
+  filtered_data <- filtered_data %>%
+    filter(!is.na(GAD_bin))
+  
+  # Summarize happiness by user, outcome type, and GAD category
+  happiness_summary_user <- filtered_data %>%
+    group_by(userKey, OutcomeType, GAD_bin) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE), .groups = 'drop') %>%
+    pivot_wider(names_from = OutcomeType, values_from = mean_happiness, values_fill = 0) %>%
+    mutate(happiness_diff = Win - Loss)
+  
+  # Merge with distinct PHQ and GAD scores
+  merged_data <- happiness_summary_user %>%
+    left_join(data %>% dplyr::select(userKey, PHQ_score = phq8_total, GAD_score = gad7_total) %>% distinct(), by = "userKey") %>%
+    na.omit()
+  
+  # Convert to long format for plotting
+  merged_data_long <- merged_data %>%
+    pivot_longer(cols = c(Loss, Win), names_to = "OutcomeType", values_to = "Happiness")
+  
+  # Summarize mean and standard error for plotting
+  summary_long <- merged_data_long %>%
+    group_by(OutcomeType, GAD_bin) %>%
+    summarise(mean_happiness = mean(Happiness, na.rm = TRUE),
+              se_happiness = sd(Happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Calculate mean predicted happiness
+  pred_happy <- filtered_data %>%
+    group_by(OutcomeType, GAD_bin) %>%
+    summarise(mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop')
+  
+  pred_happy <- na.omit(pred_happy)
+  
+  # Spearman correlation between continuous GAD score and z-scored happiness for Win and Loss
+  spearman_corr_win <- cor.test(
+    filtered_data$zHappy[filtered_data$OutcomeType == "Win"], 
+    filtered_data$gad7_total[filtered_data$OutcomeType == "Win"], 
+    method = "spearman", 
+    use = "complete.obs"
+  )
+  
+  spearman_corr_loss <- cor.test(
+    filtered_data$zHappy[filtered_data$OutcomeType == "Loss"], 
+    filtered_data$gad7_total[filtered_data$OutcomeType == "Loss"], 
+    method = "spearman", 
+    use = "complete.obs"
+  )
+  
+  # Plotting
+  plot <- ggplot(summary_long, aes(x = OutcomeType, y = mean_happiness, fill = GAD_bin)) +
+    geom_bar(stat = "identity", position = position_dodge(0.7), width = 0.7, color = "black") +
+    geom_errorbar(aes(ymin = mean_happiness - se_happiness, ymax = mean_happiness + se_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(data = pred_happy, aes(x = OutcomeType, y = mean_pred_happiness, group = GAD_bin), 
+               color = "lightblue", shape = 8, size = 3, position = position_dodge(0.7)) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    scale_fill_manual(values = c("0-4" = "#8BD7D2", "5-9" = "#6FACA8", "10-14" = "#53817E", "15-21" = "#385654")) +
+    labs(
+      title = paste("Average Happiness for", choice_type, "Choices in", trial_type, "Domain"),
+      x = "Outcome Type",
+      y = "z-scored Happiness"
+    ) +
+    theme_minimal() + 
+    ylim(-0.75, 1) +
+    poster_theme
+  
+  # Return results
+  list(
+    summary_long = summary_long,
+    spearman_corr_win = spearman_corr_win,
+    spearman_corr_loss = spearman_corr_loss,
+    plot = plot
+  )
+}
+
+
+
+# Function to calculate mean happiness for Risky vs Safe choices
+riskyvsafe_happy <- function(data, outcome = "Overall") {
+  
+  if (outcome == "Overall") {
+    # Calculate mean happiness for Risky choices
+    risky_happy <- data %>%
+      filter(Choice == 2) %>%
+      summarise(mean_happiness = mean(Happy_filled, na.rm = TRUE),
+                sem_happiness = sd(Happy_filled, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(ChoiceType = "Risky")
+    
+    # Calculate mean happiness for Safe choices
+    safe_happy <- data %>%
+      filter(Choice == 1) %>%
+      summarise(mean_happiness = mean(Happy_filled, na.rm = TRUE),
+                sem_happiness = sd(Happy_filled, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(ChoiceType = "Safe")
+    
+  } else if (outcome == "Win") {
+    # Calculate mean happiness for Risky-Win in Gain trials
+    risky_gain_win <- data %>%
+      filter(Trial == "Gain", Choice == 2, Outcome == RiskyValue) %>%
+      summarise(mean_happiness = mean(Happy_filled, na.rm = TRUE),
+                sem_happiness = sd(Happy_filled, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(ChoiceType = "Risky-Win")
+    
+    # Calculate mean happiness for Risky-Win in Loss trials
+    risky_loss_win <- data %>%
+      filter(Trial == "Loss", Choice == 2, Outcome == 0) %>%
+      summarise(mean_happiness = mean(Happy_filled, na.rm = TRUE),
+                sem_happiness = sd(Happy_filled, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(ChoiceType = "Risky-Win")
+    
+    # Combine Risky-Win results
+    risky_happy <- bind_rows(risky_gain_win, risky_loss_win) %>%
+      summarise(mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(ChoiceType = "Risky-Win")
+    
+    # Calculate mean happiness for Safe-Win in Gain trials
+    safe_gain_win <- data %>%
+      filter(Trial == "Gain", Choice == 1, Outcome == SafeValue) %>%
+      summarise(mean_happiness = mean(Happy_filled, na.rm = TRUE),
+                sem_happiness = sd(Happy_filled, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(ChoiceType = "Safe-Win")
+    
+    # Calculate mean happiness for Safe-Win in Loss trials
+    safe_loss_win <- data %>%
+      filter(Trial == "Loss", Choice == 1, Outcome == 0) %>%
+      summarise(mean_happiness = mean(Happy_filled, na.rm = TRUE),
+                sem_happiness = sd(Happy_filled, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(ChoiceType = "Safe-Win")
+    
+    # Combine Safe-Win results
+    safe_happy <- bind_rows(safe_gain_win, safe_loss_win) %>%
+      summarise(mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(ChoiceType = "Safe-Win")
+    
+  } else {
+    stop("Invalid outcome specified. Choose either 'Overall' or 'Win'.")
+  }
+  
+  # Combine Risky and Safe results
+  combined_happy <- bind_rows(risky_happy, safe_happy)
+  
+  return(combined_happy)
+}
+
+# future information and happiness
+next_island_happy <- function(data) {
+  
+  # Calculate mean happiness and predicted happiness for NextIsland == 2 within subjects
+  gain_happy <- data %>%
+    filter(NextIsland == 2) %>%
+    group_by(userKey) %>%
+    summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE),
+              mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE)) %>%
+    mutate(NextIslandType = "Gold (Gain)")
+  
+  # Calculate mean happiness and predicted happiness for NextIsland == 1 within subjects
+  loss_happy <- data %>%
+    filter(NextIsland == 1) %>%
+    group_by(userKey) %>%
+    summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE),
+              mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE)) %>%
+    mutate(NextIslandType = "Red (Loss)")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_happy, loss_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = NextIslandType, y = overall_mean_happiness, fill = NextIslandType)) +
+    geom_bar(stat = "identity", position = position_dodge(), width = 0.7, color = "black") +
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(aes(y = overall_mean_pred_happiness), color = "lightblue", shape = 8, size = 3) +
+    scale_fill_manual(values = c("Gold (Gain)" = "#FFD700", "Red (Loss)" = "#FF6347")) +
+    labs(
+      title = "Average Happiness based on NextIsland",
+      x = "Next Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    ylim(0,80) # Adjust the y-axis limit as needed
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+# z-scored
+next_island_z_happy <- function(data) {
+  
+  # Calculate mean happiness and predicted happiness for NextIsland == 2 within subjects
+  gain_happy <- data %>%
+    filter(NextIsland == 2) %>%
+    group_by(userKey) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+              mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE)) %>%
+    mutate(NextIslandType = "Gold (Gain)")
+  
+  # Calculate mean happiness and predicted happiness for NextIsland == 1 within subjects
+  loss_happy <- data %>%
+    filter(NextIsland == 1) %>%
+    group_by(userKey) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+              mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE)) %>%
+    mutate(NextIslandType = "Red (Loss)")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_happy, loss_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = NextIslandType, y = overall_mean_happiness, fill = NextIslandType)) +
+    geom_bar(stat = "identity", position = position_dodge(), width = 0.7, color = "black") +
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(aes(y = overall_mean_pred_happiness), color = "lightblue", shape = 8, size = 3) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+
+    scale_fill_manual(values = c("Gold (Gain)" = "#FFD700", "Red (Loss)" = "#FF6347")) +
+    labs(
+      title = "z-scored Happiness based on Next Island",
+      x = "Next Island Type",
+      y = "z-scored Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.06, 0.06) + 
+    poster_theme  
+
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+# residuals
+next_island_z_happy_resid <- function(data) {
+  
+  # Calculate residuals for NextIsland == 2 within subjects
+  gain_residuals <- data %>%
+    filter(NextIsland == 2) %>%
+    group_by(userKey) %>%
+    summarise(mean_residual = mean(zHappy - zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    summarise(overall_mean_residual = mean(mean_residual, na.rm = TRUE),
+              sem_residual = sd(mean_residual, na.rm = TRUE) / sqrt(n())) %>%
+    mutate(NextIslandType = "Gold (Gain)")
+  
+  # Calculate residuals for NextIsland == 1 within subjects
+  loss_residuals <- data %>%
+    filter(NextIsland == 1) %>%
+    group_by(userKey) %>%
+    summarise(mean_residual = mean(zHappy - zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    summarise(overall_mean_residual = mean(mean_residual, na.rm = TRUE),
+              sem_residual = sd(mean_residual, na.rm = TRUE) / sqrt(n())) %>%
+    mutate(NextIslandType = "Red (Loss)")
+  
+  # Combine results
+  combined_residuals <- bind_rows(gain_residuals, loss_residuals)
+  
+  # Plotting residuals as points with error bars
+  plot <- ggplot(combined_residuals, aes(x = NextIslandType, y = overall_mean_residual, color = NextIslandType)) +
+    geom_point(position = position_dodge(0.7), size = 1) +  # Points instead of bars
+    geom_errorbar(aes(ymin = overall_mean_residual - sem_residual, ymax = overall_mean_residual + sem_residual),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    scale_color_manual(values = c("Gold (Gain)" = "#FFD700", "Red (Loss)" = "#FF6347")) +
+    labs(
+      title = "Residuals of z-scored Happiness based on Next Island",
+      x = "Next Island Type",
+      y = "Residual Happiness (Actual - Predicted)"
+    ) +
+    theme_minimal() +
+    ylim(-0.05, 0.05) + 
+    poster_theme  
+  
+  return(list(plot = plot, summary_table = combined_residuals))
+}
+# with GAD
+
+next_island_happy_GAD <- function(data) {
+  
+  # Add GAD category
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Calculate mean happiness and predicted happiness for NextIsland == 2 within subjects and GAD category
+  gain_happy <- data %>%
+    filter(NextIsland == 2) %>%
+    group_by(userKey, GAD_category) %>%
+    summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE),
+              mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    group_by(GAD_category) %>%
+    summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE), .groups = 'drop') %>%
+    mutate(NextIslandType = "Gold (Gain)")
+  
+  # Calculate mean happiness and predicted happiness for NextIsland == 1 within subjects and GAD category
+  loss_happy <- data %>%
+    filter(NextIsland == 1) %>%
+    group_by(userKey, GAD_category) %>%
+    summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE),
+              mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    group_by(GAD_category) %>%
+    summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE), .groups = 'drop') %>%
+    mutate(NextIslandType = "Red (Loss)")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_happy, loss_happy)
+  
+  combined_happy <- na.omit(combined_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = NextIslandType, y = overall_mean_happiness, fill = GAD_category)) +
+    geom_bar(stat = "identity", position = position_dodge(0.7), width = 0.7, color = "black") +
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(aes(y = overall_mean_pred_happiness, group = GAD_category), color = "lightblue", shape = 8, size = 3, 
+               position = position_dodge(0.7)) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    scale_fill_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = "Average Happiness based on NextIsland and GAD",
+      x = "Next Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    poster_theme +
+    ylim(0, 80) # Adjust the y-axis limit as needed
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+# z-scored with GAD
+
+next_island_z_happy_GAD <- function(data) {
+  
+  # Add GAD category
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Filter data for NextIsland == 2 (Gold) and perform the test directly on non-aggregated data
+  mw_test_gold <- wilcox.test(zHappy ~ GAD_category, data = filter(data, NextIsland == 2), paired = FALSE)
+  
+  # Filter data for NextIsland == 1 (Red) and perform the test directly on non-aggregated data
+  mw_test_red <- wilcox.test(zHappy ~ GAD_category, data = filter(data, NextIsland == 1), paired = FALSE)
+  
+  # Calculate mean happiness and predicted happiness for NextIsland == 2 within subjects and GAD category
+  gain_happy <- data %>%
+    filter(NextIsland == 2) %>%
+    group_by(userKey, GAD_category) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+              mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    group_by(GAD_category) %>%
+    summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE), .groups = 'drop') %>%
+    mutate(NextIslandType = "Gold (Gain)")
+  
+  # Calculate mean happiness and predicted happiness for NextIsland == 1 within subjects and GAD category
+  loss_happy <- data %>%
+    filter(NextIsland == 1) %>%
+    group_by(userKey, GAD_category) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+              mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    group_by(GAD_category) %>%
+    summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE), .groups = 'drop') %>%
+    mutate(NextIslandType = "Red (Loss)")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_happy, loss_happy)
+  combined_happy <- na.omit(combined_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = NextIslandType, y = overall_mean_happiness, fill = GAD_category)) +
+    geom_bar(stat = "identity", position = position_dodge(0.7), width = 0.7, color = "black") +
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(aes(y = overall_mean_pred_happiness, group = GAD_category), color = "lightblue", shape = 8, size = 3, 
+               position = position_dodge(0.7)) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    
+    scale_fill_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = "z-scored Happiness based on NextIsland and GAD",
+      x = "Next Island Type",
+      y = "z-scored Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.06, 0.06) +
+    poster_theme 
+  
+  return(list(plot = plot, summary_table = combined_happy, mw_test_gold = mw_test_gold, mw_test_red = mw_test_red))
+}
+
+# resids
+# z-scored with GAD
+
+next_island_z_happy_resid_GAD <- function(data) {
+  
+  # Add GAD category
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Filter data for NextIsland == 2 (Gold) and perform the test on residuals
+  mw_test_gold <- wilcox.test((zHappy - zHappyPred) ~ GAD_category, data = filter(data, NextIsland == 2), paired = FALSE)
+  
+  # Filter data for NextIsland == 1 (Red) and perform the test on residuals
+  mw_test_red <- wilcox.test((zHappy - zHappyPred) ~ GAD_category, data = filter(data, NextIsland == 1), paired = FALSE)
+  
+  # Calculate residuals for NextIsland == 2 within subjects and GAD category
+  gain_residuals <- data %>%
+    filter(NextIsland == 2) %>%
+    group_by(userKey, GAD_category) %>%
+    summarise(mean_residual = mean(zHappy - zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    group_by(GAD_category) %>%
+    summarise(overall_mean_residual = mean(mean_residual, na.rm = TRUE),
+              sem_residual = sd(mean_residual, na.rm = TRUE) / sqrt(n()), .groups = 'drop') %>%
+    mutate(NextIslandType = "Gold (Gain)")
+  
+  # Calculate residuals for NextIsland == 1 within subjects and GAD category
+  loss_residuals <- data %>%
+    filter(NextIsland == 1) %>%
+    group_by(userKey, GAD_category) %>%
+    summarise(mean_residual = mean(zHappy - zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+    group_by(GAD_category) %>%
+    summarise(overall_mean_residual = mean(mean_residual, na.rm = TRUE),
+              sem_residual = sd(mean_residual, na.rm = TRUE) / sqrt(n()), .groups = 'drop') %>%
+    mutate(NextIslandType = "Red (Loss)")
+  
+  # Combine results
+  combined_residuals <- bind_rows(gain_residuals, loss_residuals)
+  combined_residuals <- na.omit(combined_residuals)
+  
+  # Plotting residuals as points with error bars
+  plot <- ggplot(combined_residuals, aes(x = NextIslandType, y = overall_mean_residual, color = GAD_category)) +
+    geom_point(position = position_dodge(0.7), size = 1) +  # Points instead of bars
+    geom_errorbar(aes(ymin = overall_mean_residual - sem_residual, ymax = overall_mean_residual + sem_residual),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    scale_color_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = "Residuals of z-scored Happiness based on NextIsland and GAD",
+      x = "Next Island Type",
+      y = "Residual Happiness (Actual - Predicted)"
+    ) +
+    theme_minimal() +
+    ylim(-0.06, 0.06) +
+    poster_theme 
+  
+  return(list(plot = plot, summary_table = combined_residuals, mw_test_gold = mw_test_gold, mw_test_red = mw_test_red))
+}
+
+
+
+# next and last island
+next_last_island_happy <- function(data) {
+  
+  # Function to calculate happiness for specific conditions
+  calc_happiness <- function(data, next_island, last_island, label) {
+    data %>%
+      filter(NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey) %>%
+      summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE),
+                mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+                overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE)) %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate happiness for each condition
+  gain_gain_happy <- calc_happiness(data, next_island = 2, last_island = 2, label = "Gold (Next) & Gold (Last)")
+  gain_loss_happy <- calc_happiness(data, next_island = 2, last_island = 1, label = "Gold (Next) & Red (Last)")
+  loss_gain_happy <- calc_happiness(data, next_island = 1, last_island = 2, label = "Red (Next) & Gold (Last)")
+  loss_loss_happy <- calc_happiness(data, next_island = 1, last_island = 1, label = "Red (Next) & Red (Last)")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_gain_happy, gain_loss_happy, loss_gain_happy, loss_loss_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = IslandType, y = overall_mean_happiness, color = IslandType)) +
+    geom_point(size = 2) +
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  width = 0.2, size = 1) +
+    scale_color_manual(values = c("Gold (Next) & Gold (Last)" = "gold", 
+                                  "Gold (Next) & Red (Last)" = "orange", 
+                                  "Red (Next) & Gold (Last)" = "coral", 
+                                  "Red (Next) & Red (Last)" = "darkred")) +
+    labs(
+      title = "Average Happiness based on NextIsland and LastIsland",
+      x = "Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    ylim(50, 55)
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+#z-scored
+next_last_island_z_happy <- function(data) {
+  
+  # Function to calculate happiness for specific conditions
+  calc_happiness <- function(data, next_island, last_island, label) {
+    data %>%
+      filter(NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey) %>%
+      summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+                mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+                overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE)) %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate happiness for each condition
+  gain_gain_happy <- calc_happiness(data, next_island = 2, last_island = 2, label = "Gold (Next) & Gold (Last)")
+  gain_loss_happy <- calc_happiness(data, next_island = 2, last_island = 1, label = "Gold (Next) & Red (Last)")
+  loss_gain_happy <- calc_happiness(data, next_island = 1, last_island = 2, label = "Red (Next) & Gold (Last)")
+  loss_loss_happy <- calc_happiness(data, next_island = 1, last_island = 1, label = "Red (Next) & Red (Last)")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_gain_happy, gain_loss_happy, loss_gain_happy, loss_loss_happy)
+
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = IslandType, y = overall_mean_happiness, group = IslandType, color = IslandType)) +
+    geom_point(size = 2, position = position_dodge(0.7)) +  # Points for actual happiness
+    geom_line(position = position_dodge(0.7), size = 1) +  # Line through the points
+    geom_point(aes(y = overall_mean_pred_happiness), color = "lightblue", shape = 8, size = 3, 
+               position = position_dodge(0.7)) +  # Plot predicted happiness as blue asterisks
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  width = 0.2, size = 1, position = position_dodge(0.7)) +
+    scale_color_manual(values = c("Gold (Next) & Gold (Last)" = "gold", 
+                                  "Gold (Next) & Red (Last)" = "orange", 
+                                  "Red (Next) & Gold (Last)" = "coral", 
+                                  "Red (Next) & Red (Last)" = "darkred")) +
+    labs(
+      title = "Average Happiness based on NextIsland and LastIsland",
+      x = "Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.09, 0.09) + 
+    poster_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+
+# residuals
+next_last_island_z_happy_resid <- function(data) {
+  
+  # Function to calculate residuals for specific conditions
+  calc_residuals <- function(data, next_island, last_island, label) {
+    data %>%
+      filter(NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey) %>%
+      summarise(mean_residual = mean(zHappy - zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      summarise(overall_mean_residual = mean(mean_residual, na.rm = TRUE),
+                sem_residual = sd(mean_residual, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate residuals for each condition
+  gain_gain_residual <- calc_residuals(data, next_island = 2, last_island = 2, label = "Gold (Next) & Gold (Last)")
+  gain_loss_residual <- calc_residuals(data, next_island = 2, last_island = 1, label = "Gold (Next) & Red (Last)")
+  loss_gain_residual <- calc_residuals(data, next_island = 1, last_island = 2, label = "Red (Next) & Gold (Last)")
+  loss_loss_residual <- calc_residuals(data, next_island = 1, last_island = 1, label = "Red (Next) & Red (Last)")
+  
+  # Combine results
+  combined_residuals <- bind_rows(gain_gain_residual, gain_loss_residual, loss_gain_residual, loss_loss_residual)
+  
+  # Plotting residuals
+  plot <- ggplot(combined_residuals, aes(x = IslandType, y = overall_mean_residual, color = IslandType)) +
+    geom_point(size = 2) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    geom_errorbar(aes(ymin = overall_mean_residual - sem_residual, ymax = overall_mean_residual + sem_residual),
+                  width = 0.2, size = 1) +
+    scale_color_manual(values = c("Gold (Next) & Gold (Last)" = "gold", 
+                                  "Gold (Next) & Red (Last)" = "orange", 
+                                  "Red (Next) & Gold (Last)" = "coral", 
+                                  "Red (Next) & Red (Last)" = "darkred")) +
+    labs(
+      x = "Island Type",
+      y = "Residual Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.1, 0.1) + 
+    poster_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+  
+  return(list(plot = plot, summary_table = combined_residuals))
+}
+
+next_last_island_happy_GAD <- function(data) {
+  
+  # Add GAD category
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Function to calculate happiness for specific conditions and split by GAD category
+  calc_happiness <- function(data, next_island, last_island, label) {
+    data %>%
+      filter(NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey, GAD_category) %>%
+      summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE),
+                mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      group_by(GAD_category) %>%
+      summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+                overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE),
+                .groups = 'drop') %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate happiness for each condition split by GAD category
+  gain_gain_happy <- calc_happiness(data, next_island = 2, last_island = 2, label = "Gold (Next) & Gold (Last)")
+  gain_loss_happy <- calc_happiness(data, next_island = 2, last_island = 1, label = "Gold (Next) & Red (Last)")
+  loss_gain_happy <- calc_happiness(data, next_island = 1, last_island = 2, label = "Red (Next) & Gold (Last)")
+  loss_loss_happy <- calc_happiness(data, next_island = 1, last_island = 1, label = "Red (Next) & Red (Last)")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_gain_happy, gain_loss_happy, loss_gain_happy, loss_loss_happy)
+  
+  combined_happy <- na.omit(combined_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = IslandType, y = overall_mean_happiness,color = GAD_category, group = GAD_category)) +
+    geom_point(size = 2, position = position_dodge(0.7)) +
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2, size = 1) +
+    geom_line(position = position_dodge(0.7), size = 1) +  # Lines connecting points by GAD group
+    
+    scale_color_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = "Average Happiness based on NextIsland, LastIsland, and GAD Category",
+      x = "Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    ylim(40, 60)
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+# with GAD
+next_last_island_z_happy_GAD <- function(data) {
+  
+  # Add GAD category
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Function to calculate happiness for specific conditions and split by GAD category
+  calc_happiness <- function(data, next_island, last_island, label) {
+    data %>%
+      filter(NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey, GAD_category) %>%
+      summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+                mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      group_by(GAD_category) %>%
+      summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+                overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE),
+                .groups = 'drop') %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate happiness for each condition split by GAD category
+  gain_gain_happy <- calc_happiness(data, next_island = 2, last_island = 2, label = "Gold (Next) & Gold (Last)")
+  gain_loss_happy <- calc_happiness(data, next_island = 2, last_island = 1, label = "Gold (Next) & Red (Last)")
+  loss_gain_happy <- calc_happiness(data, next_island = 1, last_island = 2, label = "Red (Next) & Gold (Last)")
+  loss_loss_happy <- calc_happiness(data, next_island = 1, last_island = 1, label = "Red (Next) & Red (Last)")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_gain_happy, gain_loss_happy, loss_gain_happy, loss_loss_happy)
+  combined_happy <- na.omit(combined_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = IslandType, y = overall_mean_happiness, color = GAD_category, group = GAD_category)) +
+    geom_point(aes(y = overall_mean_pred_happiness, group = GAD_category), 
+               color = "lightblue", shape = 8, size = 3, position = position_dodge(0.7)) +
+    geom_point(size = 2, position = position_dodge(0.7)) +
+    # Predicted happiness by GAD groups
+    geom_line(position = position_dodge(0.7), size = 1) +  # Lines connecting points by GAD group
+  
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2, size = 1) +
+    scale_color_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = "Average Happiness based on NextIsland, LastIsland, and GAD Category",
+      x = "Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.1, 0.1) +
+    poster_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+# residuals
+next_last_island_z_happy_resid_GAD <- function(data) {
+  
+  # Add GAD category
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Function to calculate residuals for specific conditions and split by GAD category
+  calc_residuals <- function(data, next_island, last_island, label) {
+    data %>%
+      filter(NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey, GAD_category) %>%
+      summarise(mean_residual = mean(zHappy - zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      group_by(GAD_category) %>%
+      summarise(overall_mean_residual = mean(mean_residual, na.rm = TRUE),
+                sem_residual = sd(mean_residual, na.rm = TRUE) / sqrt(n()), .groups = 'drop') %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate residuals for each condition split by GAD category
+  gain_gain_residual <- calc_residuals(data, next_island = 2, last_island = 2, label = "Gold (Next) & Gold (Last)")
+  gain_loss_residual <- calc_residuals(data, next_island = 2, last_island = 1, label = "Gold (Next) & Red (Last)")
+  loss_gain_residual <- calc_residuals(data, next_island = 1, last_island = 2, label = "Red (Next) & Gold (Last)")
+  loss_loss_residual <- calc_residuals(data, next_island = 1, last_island = 1, label = "Red (Next) & Red (Last)")
+  
+  # Combine results
+  combined_residuals <- bind_rows(gain_gain_residual, gain_loss_residual, loss_gain_residual, loss_loss_residual)
+  combined_residuals <- na.omit(combined_residuals)
+  
+  # Plotting residuals
+  plot <- ggplot(combined_residuals, aes(x = IslandType, y = overall_mean_residual, color = GAD_category, group = GAD_category)) +
+    geom_point(size = 2, position = position_dodge(0.7)) +
+    geom_line(position = position_dodge(0.7), size = 1) +  # Lines connecting points by GAD group
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    geom_errorbar(aes(ymin = overall_mean_residual - sem_residual, ymax = overall_mean_residual + sem_residual),
+                  position = position_dodge(0.7), width = 0.2, size = 1) +
+    scale_color_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = "Residual Happiness based on NextIsland, LastIsland, and GAD Category",
+      x = "Island Type",
+      y = "Residual Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.1, 0.1) +
+    poster_theme + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  return(list(plot = plot, summary_table = combined_residuals))
+}
+
+# current, next and last trial
+next_last_current_island_happy <- function(data) {
+  
+  # Add a column for the current island based on Trial
+  data <- data %>%
+    mutate(CurrentIsland = ifelse(Trial == "Gain", 2, 1))
+  
+  # Helper function to calculate happiness for specific conditions
+  calc_happiness <- function(data, current_island, next_island, last_island, label) {
+    data %>%
+      filter(CurrentIsland == current_island, NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey) %>%
+      summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE),
+                mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+                overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE)) %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate happiness for each combination of current, next, and last islands
+  gain_gain_gain_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 2, label = "GGG")
+  gain_gain_loss_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 1, label = "GGR")
+  gain_loss_gain_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 2, label = "GRG")
+  gain_loss_loss_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 1, label = "GRR")
+  loss_gain_gain_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 2, label = "RGG")
+  loss_gain_loss_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 1, label = "RGR")
+  loss_loss_gain_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 2, label = "RRG")
+  loss_loss_loss_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 1, label = "RRR")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_gain_gain_happy, gain_gain_loss_happy, gain_loss_gain_happy, gain_loss_loss_happy,
+                              loss_gain_gain_happy, loss_gain_loss_happy, loss_loss_gain_happy, loss_loss_loss_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = IslandType, y = overall_mean_happiness, fill = IslandType)) +
+    geom_point(size = 2) +
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(aes(y = overall_mean_pred_happiness), color = "lightblue", shape = 8, size = 3) +
+    labs(
+      title = "Average Happiness based on Current, Next, and Last Island",
+      x = "Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    theme(axis.line = element_line(size = 1, color = "black"),
+          panel.grid.major = element_blank(),   # Remove major grid lines
+          panel.grid.minor = element_blank(),   # Remove minor grid lines
+          axis.ticks = element_line(size = 0.5),  # Add axis ticks
+          axis.text = element_text(size = 12),    # Increase axis text size
+          axis.title = element_text(size = 14),   # Increase axis title size
+          plot.title = element_text(size = 16)) +
+    ylim(40, 60) + # Adjust the y-axis limit as needed
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    theme(legend.position="none")
+  
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+#z-scored
+
+next_last_current_island_z_happy <- function(data) {
+  
+  # Add a column for the current island based on Trial
+  data <- data %>%
+    mutate(CurrentIsland = ifelse(Trial == "Gain", 2, 1))
+  
+  # Helper function to calculate happiness for specific conditions
+  calc_happiness <- function(data, current_island, next_island, last_island, label) {
+    data %>%
+      filter(CurrentIsland == current_island, NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey) %>%
+      summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+                mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+                overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE)) %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate happiness for each combination of current, next, and last islands
+  gain_gain_gain_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 2, label = "GGG")
+  gain_gain_loss_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 1, label = "GGR")
+  gain_loss_gain_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 2, label = "GRG")
+  gain_loss_loss_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 1, label = "GRR")
+  loss_gain_gain_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 2, label = "RGG")
+  loss_gain_loss_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 1, label = "RGR")
+  loss_loss_gain_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 2, label = "RRG")
+  loss_loss_loss_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 1, label = "RRR")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_gain_gain_happy, gain_gain_loss_happy, gain_loss_gain_happy, gain_loss_loss_happy,
+                              loss_gain_gain_happy, loss_gain_loss_happy, loss_loss_gain_happy, loss_loss_loss_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = IslandType, y = overall_mean_happiness, fill = IslandType)) +
+    geom_point(size = 2) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(aes(y = overall_mean_pred_happiness), color = "lightblue", shape = 8, size = 3) +
+    labs(
+      title = "Average Happiness based on Current, Next, and Last Island",
+      x = "Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.5,0.5) +
+    theme(axis.line = element_line(size = 1, color = "black"),
+          panel.grid.major = element_blank(),   # Remove major grid lines
+          panel.grid.minor = element_blank(),   # Remove minor grid lines
+          axis.ticks = element_line(size = 0.5),  # Add axis ticks
+          axis.text = element_text(size = 12),    # Increase axis text size
+          axis.title = element_text(size = 14),   # Increase axis title size
+          plot.title = element_text(size = 16)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    theme(legend.position="none")
+  
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+#residuals
+next_last_current_island_z_happy <- function(data) {
+  
+  # Add a column for the current island based on Trial
+  data <- data %>%
+    mutate(CurrentIsland = ifelse(Trial == "Gain", 2, 1))
+  
+  # Helper function to calculate happiness for specific conditions
+  calc_happiness <- function(data, current_island, next_island, last_island, label) {
+    data %>%
+      filter(CurrentIsland == current_island, NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey) %>%
+      summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+                mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+                overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE)) %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate happiness for each combination of current, next, and last islands
+  gain_gain_gain_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 2, label = "GGG")
+  gain_gain_loss_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 1, label = "GGR")
+  gain_loss_gain_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 2, label = "GRG")
+  gain_loss_loss_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 1, label = "GRR")
+  loss_gain_gain_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 2, label = "RGG")
+  loss_gain_loss_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 1, label = "RGR")
+  loss_loss_gain_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 2, label = "RRG")
+  loss_loss_loss_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 1, label = "RRR")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_gain_gain_happy, gain_gain_loss_happy, gain_loss_gain_happy, gain_loss_loss_happy,
+                              loss_gain_gain_happy, loss_gain_loss_happy, loss_loss_gain_happy, loss_loss_loss_happy)
+  
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = IslandType, y = overall_mean_happiness, fill = IslandType)) +
+    geom_point(size = 2) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(aes(y = overall_mean_pred_happiness), color = "lightblue", shape = 8, size = 3) +
+    labs(
+      title = "Average Happiness based on Current, Next, and Last Island",
+      x = "Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.5,0.5) +
+    theme(axis.line = element_line(size = 1, color = "black"),
+          panel.grid.major = element_blank(),   # Remove major grid lines
+          panel.grid.minor = element_blank(),   # Remove minor grid lines
+          axis.ticks = element_line(size = 0.5),  # Add axis ticks
+          axis.text = element_text(size = 12),    # Increase axis text size
+          axis.title = element_text(size = 14),   # Increase axis title size
+          plot.title = element_text(size = 16)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    theme(legend.position="none")
+  
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+#residuals
+next_last_current_island_z_happy_resid <- function(data) {
+  
+  # Add a column for the current island based on Trial
+  data <- data %>%
+    mutate(CurrentIsland = ifelse(Trial == "Gain", 2, 1))
+  
+  # Helper function to calculate residuals for specific conditions
+  calc_residuals <- function(data, current_island, next_island, last_island, label) {
+    data %>%
+      filter(CurrentIsland == current_island, NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey) %>%
+      summarise(mean_residual = mean(zHappy - zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      summarise(overall_mean_residual = mean(mean_residual, na.rm = TRUE),
+                sem_residual = sd(mean_residual, na.rm = TRUE) / sqrt(n())) %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate residuals for each combination of current, next, and last islands
+  gain_gain_gain_resid <- calc_residuals(data, current_island = 2, next_island = 2, last_island = 2, label = "GGG")
+  gain_gain_loss_resid <- calc_residuals(data, current_island = 2, next_island = 2, last_island = 1, label = "GGR")
+  gain_loss_gain_resid <- calc_residuals(data, current_island = 2, next_island = 1, last_island = 2, label = "GRG")
+  gain_loss_loss_resid <- calc_residuals(data, current_island = 2, next_island = 1, last_island = 1, label = "GRR")
+  loss_gain_gain_resid <- calc_residuals(data, current_island = 1, next_island = 2, last_island = 2, label = "RGG")
+  loss_gain_loss_resid <- calc_residuals(data, current_island = 1, next_island = 2, last_island = 1, label = "RGR")
+  loss_loss_gain_resid <- calc_residuals(data, current_island = 1, next_island = 1, last_island = 2, label = "RRG")
+  loss_loss_loss_resid <- calc_residuals(data, current_island = 1, next_island = 1, last_island = 1, label = "RRR")
+  
+  # Combine results
+  combined_residuals <- bind_rows(gain_gain_gain_resid, gain_gain_loss_resid, gain_loss_gain_resid, gain_loss_loss_resid,
+                                  loss_gain_gain_resid, loss_gain_loss_resid, loss_loss_gain_resid, loss_loss_loss_resid)
+  
+  # Plotting residuals
+  plot <- ggplot(combined_residuals, aes(x = IslandType, y = overall_mean_residual, fill = IslandType)) +
+    geom_point(size = 2) +
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    geom_errorbar(aes(ymin = overall_mean_residual - sem_residual, ymax = overall_mean_residual + sem_residual),
+                  position = position_dodge(0.7), width = 0.2) +
+    labs(
+      title = "Residual Happiness based on Current, Next, and Last Island",
+      x = "Island Type",
+      y = "Residual Happiness (Actual - Predicted)"
+    ) +
+    theme_minimal() +
+    ylim(-0.5, 0.5) +
+    theme(axis.line = element_line(size = 1, color = "black"),
+          panel.grid.major = element_blank(),   # Remove major grid lines
+          panel.grid.minor = element_blank(),   # Remove minor grid lines
+          axis.ticks = element_line(size = 0.5),  # Add axis ticks
+          axis.text = element_text(size = 12),    # Increase axis text size
+          axis.title = element_text(size = 14),   # Increase axis title size
+          plot.title = element_text(size = 16)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    theme(legend.position = "none")
+  
+  return(list(plot = plot, summary_table = combined_residuals))
+}
+
+# split by GAD
+next_last_current_island_happy_GAD <- function(data) {
+  
+  # Add columns for the current island and GAD category
+  data <- data %>%
+    mutate(CurrentIsland = ifelse(Trial == "Gain", 2, 1),
+           GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Helper function to calculate happiness for specific conditions
+  calc_happiness <- function(data, current_island, next_island, last_island, label) {
+    data %>%
+      filter(CurrentIsland == current_island, NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey, GAD_category) %>%
+      summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE),
+                mean_pred_happiness = mean(HappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      group_by(GAD_category) %>%
+      summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+                overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE), .groups = 'drop') %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate happiness for each combination of current, next, and last islands
+  gain_gain_gain_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 2, label = "GGG")
+  gain_gain_loss_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 1, label = "GGR")
+  gain_loss_gain_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 2, label = "GRG")
+  gain_loss_loss_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 1, label = "GRR")
+  loss_gain_gain_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 2, label = "RGG")
+  loss_gain_loss_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 1, label = "RGR")
+  loss_loss_gain_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 2, label = "RRG")
+  loss_loss_loss_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 1, label = "RRR")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_gain_gain_happy, gain_gain_loss_happy, gain_loss_gain_happy, gain_loss_loss_happy,
+                              loss_gain_gain_happy, loss_gain_loss_happy, loss_loss_gain_happy, loss_loss_loss_happy)
+  
+  combined_happy <- na.omit(combined_happy)
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = IslandType, y = overall_mean_happiness, color = GAD_category)) +
+    geom_point(size = 2, position = position_dodge(0.7)) +
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    scale_color_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = "Average Happiness based on Current, Next, and Last Island",
+      x = "Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    theme(axis.line = element_line(size = 1, color = "black"),
+          panel.grid.major = element_blank(),   # Remove major grid lines
+          panel.grid.minor = element_blank(),   # Remove minor grid lines
+          axis.ticks = element_line(size = 0.5),  # Add axis ticks
+          axis.title = element_text(size = 14),   # Increase axis title size
+          plot.title = element_text(size = 16)) +    ylim(45, 65) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(legend.position = "right")
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+#z-scored
+# split by GAD
+next_last_current_island_z_happy_GAD <- function(data) {
+  
+  # Add columns for the current island and GAD category
+  data <- data %>%
+    mutate(CurrentIsland = ifelse(Trial == "Gain", 2, 1),
+           GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Helper function to calculate happiness for specific conditions
+  calc_happiness <- function(data, current_island, next_island, last_island, label) {
+    data %>%
+      filter(CurrentIsland == current_island, NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey, GAD_category) %>%
+      summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+                mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      group_by(GAD_category) %>%
+      summarise(overall_mean_happiness = mean(mean_happiness, na.rm = TRUE),
+                sem_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+                overall_mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE), .groups = 'drop') %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate happiness for each combination of current, next, and last islands
+  gain_gain_gain_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 2, label = "GGG")
+  gain_gain_loss_happy <- calc_happiness(data, current_island = 2, next_island = 2, last_island = 1, label = "GGR")
+  gain_loss_gain_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 2, label = "GRG")
+  gain_loss_loss_happy <- calc_happiness(data, current_island = 2, next_island = 1, last_island = 1, label = "GRR")
+  loss_gain_gain_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 2, label = "RGG")
+  loss_gain_loss_happy <- calc_happiness(data, current_island = 1, next_island = 2, last_island = 1, label = "RGR")
+  loss_loss_gain_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 2, label = "RRG")
+  loss_loss_loss_happy <- calc_happiness(data, current_island = 1, next_island = 1, last_island = 1, label = "RRR")
+  
+  # Combine results
+  combined_happy <- bind_rows(gain_gain_gain_happy, gain_gain_loss_happy, gain_loss_gain_happy, gain_loss_loss_happy,
+                              loss_gain_gain_happy, loss_gain_loss_happy, loss_loss_gain_happy, loss_loss_loss_happy)
+  
+  combined_happy <- na.omit(combined_happy)
+  # Plotting
+  plot <- ggplot(combined_happy, aes(x = IslandType, y = overall_mean_happiness, color = GAD_category, group=GAD_category)) +
+    geom_point(size = 2, position = position_dodge(0.7)) +
+    geom_line(position = position_dodge(0.7), size = 1) +  # Lines connecting points by GAD group
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),
+                  position = position_dodge(0.7), width = 0.2) +
+    geom_point(aes(y = overall_mean_pred_happiness), color = "lightblue", shape = 8, size = 3,position=position_dodge(0.7)) +
+    
+    scale_color_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = "Average Happiness based on Current, Next, and Last Island",
+      x = "Island Type",
+      y = "Average Happiness"
+    ) +
+    theme_minimal() +
+    ylim(-0.3, 0.3) + 
+    theme(axis.line = element_line(size = 1, color = "black"),
+          panel.grid.major = element_blank(),   # Remove major grid lines
+          panel.grid.minor = element_blank(),   # Remove minor grid lines
+          axis.ticks = element_line(size = 0.5),  # Add axis ticks
+          axis.title = element_text(size = 14),   # Increase axis title size
+          plot.title = element_text(size = 16)) +   
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(legend.position = "right")
+  
+  return(list(plot = plot, summary_table = combined_happy))
+}
+
+#residuals
+next_last_current_island_z_happy_resid_GAD <- function(data) {
+  
+  # Add columns for the current island and GAD category
+  data <- data %>%
+    mutate(CurrentIsland = ifelse(Trial == "Gain", 2, 1),
+           GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Helper function to calculate residuals for specific conditions and split by GAD category
+  calc_residuals <- function(data, current_island, next_island, last_island, label) {
+    data %>%
+      filter(CurrentIsland == current_island, NextIsland == next_island, LastIsland == last_island) %>%
+      group_by(userKey, GAD_category) %>%
+      summarise(mean_residual = mean(zHappy - zHappyPred, na.rm = TRUE), .groups = 'drop') %>%
+      group_by(GAD_category) %>%
+      summarise(overall_mean_residual = mean(mean_residual, na.rm = TRUE),
+                sem_residual = sd(mean_residual, na.rm = TRUE) / sqrt(n()), .groups = 'drop') %>%
+      mutate(IslandType = label)
+  }
+  
+  # Calculate residuals for each combination of current, next, and last islands
+  gain_gain_gain_resid <- calc_residuals(data, current_island = 2, next_island = 2, last_island = 2, label = "GGG")
+  gain_gain_loss_resid <- calc_residuals(data, current_island = 2, next_island = 2, last_island = 1, label = "GGR")
+  gain_loss_gain_resid <- calc_residuals(data, current_island = 2, next_island = 1, last_island = 2, label = "GRG")
+  gain_loss_loss_resid <- calc_residuals(data, current_island = 2, next_island = 1, last_island = 1, label = "GRR")
+  loss_gain_gain_resid <- calc_residuals(data, current_island = 1, next_island = 2, last_island = 2, label = "RGG")
+  loss_gain_loss_resid <- calc_residuals(data, current_island = 1, next_island = 2, last_island = 1, label = "RGR")
+  loss_loss_gain_resid <- calc_residuals(data, current_island = 1, next_island = 1, last_island = 2, label = "RRG")
+  loss_loss_loss_resid <- calc_residuals(data, current_island = 1, next_island = 1, last_island = 1, label = "RRR")
+  
+  # Combine results
+  combined_residuals <- bind_rows(gain_gain_gain_resid, gain_gain_loss_resid, gain_loss_gain_resid, gain_loss_loss_resid,
+                                  loss_gain_gain_resid, loss_gain_loss_resid, loss_loss_gain_resid, loss_loss_loss_resid)
+  
+  combined_residuals <- na.omit(combined_residuals)
+  
+  # Plotting residuals
+  plot <- ggplot(combined_residuals, aes(x = IslandType, y = overall_mean_residual, color = GAD_category, group = GAD_category)) +
+    geom_point(size = 2, position = position_dodge(0.7)) +
+    geom_line(position = position_dodge(0.7), size = 1) +  # Lines connecting points by GAD group
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+    geom_errorbar(aes(ymin = overall_mean_residual - sem_residual, ymax = overall_mean_residual + sem_residual),
+                  position = position_dodge(0.7), width = 0.2) +
+    scale_color_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+    labs(
+      title = "Residual Happiness based on Current, Next, and Last Island",
+      x = "Island Type",
+      y = "Residual Happiness (Actual - Predicted)"
+    ) +
+    theme_minimal() +
+    ylim(-0.3, 0.3) + 
+    theme(axis.line = element_line(size = 1, color = "black"),
+          panel.grid.major = element_blank(),   # Remove major grid lines
+          panel.grid.minor = element_blank(),   # Remove minor grid lines
+          axis.ticks = element_line(size = 0.5),  # Add axis ticks
+          axis.title = element_text(size = 14),   # Increase axis title size
+          plot.title = element_text(size = 16)) +   
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(legend.position = "right")
+  
+  return(list(plot = plot, summary_table = combined_residuals))
+}
+
+
+# risky choices across probabilieis groups
+risky_choice_probs <- function(data) {
+  
+  # Filter data to calculate % risky choices per user, RiskyProb group, and domain (Gain/Loss)
+  risky_data <- data %>%
+    group_by(userKey,RiskyProb, Trial) %>%
+    summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop')
+  
+  # Set the factor levels for RiskyProb to order them
+  risky_data <- risky_data %>%
+    mutate(RiskyProb = factor(RiskyProb, levels = as.character(sort(unique(RiskyProb)))),
+           Trial = factor(Trial, levels = c("Gain", "Loss")))
+  
+  # Summarize the data to calculate the mean and SE of % risky choices across RiskyProb groups and domains
+  summary_data <- risky_data %>%
+    group_by(RiskyProb, Trial) %>%
+    summarise(mean_percent_risky = mean(percent_risky, na.rm = TRUE),
+              se_percent_risky = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Plotting the % risky choices across RiskyProb groups and domains as points with error bars
+  plot <- ggplot(summary_data, aes(x = RiskyProb, y = mean_percent_risky, color = Trial, group = Trial)) +
+    geom_point(position = position_dodge(0), size = 3) +
+    geom_line(position = position_dodge(0), size = 1) +
+        geom_hline(yintercept = 50, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
+
+    geom_errorbar(aes(ymin = mean_percent_risky - se_percent_risky, ymax = mean_percent_risky + se_percent_risky),
+                  position = position_dodge(0), width = 0.2) +
+    labs(
+      title = "% Risky Choices in Gain and Loss Domains by Risky Probability",
+      x = "Risky Probability",
+      y = "% Risky Choices"
+    ) +
+    theme_minimal() +
+    poster_theme +
+    ylim(0, 100) + 
+    scale_x_continuous(limits = c(0, 100), breaks = c(0, 0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0)) +  # Set limits and specific x-axis ticks
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral"))
+  
+  # Kruskal-Wallis test for each domain (Gain and Loss)
+  kruskal_test_gain <- if (nrow(filter(risky_data, Trial == "Gain")) > 0) {
+    kruskal.test(percent_risky ~ RiskyProb, data = filter(risky_data, Trial == "Gain"))
+  } else {
+    NULL
+  }
+  
+  kruskal_test_loss <- if (nrow(filter(risky_data, Trial == "Loss")) > 0) {
+    kruskal.test(percent_risky ~ RiskyProb, data = filter(risky_data, Trial == "Loss"))
+  } else {
+    NULL
+  }
+  
+  return(list(plot = plot, 
+              kruskal_test_gain = kruskal_test_gain, 
+              kruskal_test_loss = kruskal_test_loss))
+}
+
+# risky choices across probabilieis groups
+risky_choice_magnitude <- function(data) {
+  
+  # Filter data to calculate % risky choices per user, magnitude of RiskyValue, and domain (Gain/Loss)
+  risky_data <- data %>%
+    group_by(userKey, RiskyValue = abs(RiskyValue), Trial) %>%
+    summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop')
+  
+  # Summarize the data to calculate the mean and SE of % risky choices across magnitude groups and domains
+  summary_data <- risky_data %>%
+    group_by(RiskyValue, Trial) %>%
+    summarise(mean_percent_risky = mean(percent_risky, na.rm = TRUE),
+              se_percent_risky = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Plotting the % risky choices across magnitude groups and domains
+  plot <- ggplot(summary_data, aes(x = RiskyValue, y = mean_percent_risky, color = Trial)) +
+    geom_point(position = position_dodge(0.8), size = 3) +
+    geom_line(aes(group = Trial), size = 1, alpha = 0.7) +
+    geom_errorbar(aes(ymin = mean_percent_risky - se_percent_risky, ymax = mean_percent_risky + se_percent_risky),
+                  position = position_dodge(0.8), width = 0.2) +
+    geom_hline(yintercept = 50, linetype = "dotted", color = "black") +  # Dotted line at 50
+    
+    labs(
+      title = "% Risky Choices in Gain and Loss Domains by Risky Value Magnitude",
+      x = "Risky Value Magnitude",
+      y = "% Risky Choices"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    ylim(0, 100) +
+    scale_x_continuous(limits = c(0, 100), breaks = c(20, 25, 40, 65, 80)) +  # Set limits and specific x-axis ticks
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral"))
+  
+  # Kruskal-Wallis test for each domain (Gain and Loss)
+  kruskal_test_gain <- if (nrow(filter(risky_data, Trial == "Gain")) > 0) {
+    kruskal.test(percent_risky ~ RiskyValue, data = filter(risky_data, Trial == "Gain"))
+  } else {
+    NULL
+  }
+  
+  kruskal_test_loss <- if (nrow(filter(risky_data, Trial == "Loss")) > 0) {
+    kruskal.test(percent_risky ~ RiskyValue, data = filter(risky_data, Trial == "Loss"))
+  } else {
+    NULL
+  }
+  
+  return(list(plot = plot, 
+              kruskal_test_gain = kruskal_test_gain, 
+              kruskal_test_loss = kruskal_test_loss))
+}
+
+
+
+
+# risky choices across EV groups
+risky_choice_EVs <- function(data) {
+  
+  # Filter data to calculate % risky choices per user, RelEV group, and domain (Gain/Loss)
+  risky_data <- data %>%
+    group_by(userKey, RelEV, Trial) %>%
+    summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop')
+  
+  # Set the factor levels for RelEV to order them as Low, Equal, Medium, High
+  risky_data <- risky_data %>%
+    mutate(RelEV = factor(RelEV, levels = c("Low", "Equal", "Medium", "High")),
+           Trial = factor(Trial, levels = c("Gain", "Loss")))
+  
+  # Summarize the data to calculate the mean and SE of % risky choices across RelEV groups and domains
+  summary_data <- risky_data %>%
+    group_by(RelEV, Trial) %>%
+    summarise(mean_percent_risky = mean(percent_risky, na.rm = TRUE),
+              se_percent_risky = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Plotting the % risky choices across RelEV groups and domains
+  plot <- ggplot(summary_data, aes(x = RelEV, y = mean_percent_risky, color = Trial)) +
+    geom_point(position = position_dodge(0), size = 3) +
+    geom_line(aes(linetype = Trial, group = Trial), position = position_dodge(0), size = 1, alpha = 0.7) +
+    geom_hline(yintercept = 50, linetype = "dotted", color = "black") +  # Dotted line at 50
+    geom_errorbar(aes(ymin = mean_percent_risky - se_percent_risky, ymax = mean_percent_risky + se_percent_risky),
+                  position = position_dodge(0), width = 0.2) +
+    labs(
+      title = "% Risky Choices in Gain and Loss Domains by EV",
+      x = "RelEV Group",
+      y = "% Risky Choices"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    scale_y_continuous(limits = c(0, 100), expand = c(0, 0)) +  # Strictly enforce y-axis limits
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral"))
+  
+  
+  
+  
+  # Kruskal-Wallis test for each domain (Gain and Loss)
+  kruskal_test_gain <- if (nrow(filter(risky_data, Trial == "Gain")) > 0) {
+    kruskal.test(percent_risky ~ RelEV, data = filter(risky_data, Trial == "Gain"))
+  } else {
+    NULL
+  }
+  
+  kruskal_test_loss <- if (nrow(filter(risky_data, Trial == "Loss")) > 0) {
+    kruskal.test(percent_risky ~ RelEV, data = filter(risky_data, Trial == "Loss"))
+  } else {
+    NULL
+  }
+  
+  return(list(plot = plot, 
+              kruskal_test_gain = kruskal_test_gain, 
+              kruskal_test_loss = kruskal_test_loss))
+}
+
+
+
+risky_choice_EVs_raw <- function(data) {
+  
+  # Filter data to calculate % risky choices per user, RelEV group, and domain (Gain/Loss)
+  risky_data <- data %>%
+    group_by(userKey, RiskyEV, Trial) %>%
+    summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop')
+  
+  
+  # Summarize the data to calculate the mean and SE of % risky choices across RelEV groups and domains
+  summary_data <- risky_data %>%
+    group_by(RiskyEV, Trial) %>%
+    summarise(mean_percent_risky = mean(percent_risky, na.rm = TRUE),
+              se_percent_risky = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Plotting the % risky choices across RelEV groups and domains
+  plot <- ggplot(summary_data, aes(x = RiskyEV, y = mean_percent_risky, color = Trial)) +
+    geom_point(position = position_dodge(0.8), size = 3) +
+    geom_line(aes(linetype = Trial), size = 1, alpha = 0.7) +
+    labs(
+      title = "% Risky Choices in Gain and Loss Domains by EV",
+      x = "Risky EV",
+      y = "% Risky Choices"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral"))
+  
+  # Kruskal-Wallis test for each domain (Gain and Loss)
+  kruskal_test_gain <- if (nrow(filter(risky_data, Trial == "Gain")) > 0) {
+    kruskal.test(percent_risky ~ RiskyEV, data = filter(risky_data, Trial == "Gain"))
+  } else {
+    NULL
+  }
+  
+  kruskal_test_loss <- if (nrow(filter(risky_data, Trial == "Loss")) > 0) {
+    kruskal.test(percent_risky ~ RiskyEV, data = filter(risky_data, Trial == "Loss"))
+  } else {
+    NULL
+  }
+  
+  return(list(plot = plot, 
+              kruskal_test_gain = kruskal_test_gain, 
+              kruskal_test_loss = kruskal_test_loss))
+}
+
+
+# risky choices with GAD
+risky_choice_EVs_GAD <- function(data) {
+  
+data <- data %>%
+  mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+
+data <- na.omit(data)
+
+# Filter data to calculate % risky choices per user, RelEV group, domain (Gain/Loss), and GAD category
+risky_data <- data %>%
+  group_by(userKey, RelEV, Trial, GAD_category) %>%
+  summarise(total_choices = n(),
+            risky_choices = sum(Choice == 2, na.rm = TRUE),
+            percent_risky = (risky_choices / total_choices) * 100,
+            .groups = 'drop')
+
+# Set the factor levels for RelEV to order them as Low, Equal, Medium, High
+risky_data <- risky_data %>%
+  mutate(RelEV = factor(RelEV, levels = c("Low", "Equal", "Medium", "High")),
+         Trial = factor(Trial, levels = c("Gain", "Loss")),
+         GAD_category = factor(GAD_category, levels = c("GAD < 6", "GAD 6+")))
+
+# Summarize the data to calculate the mean and SE of % risky choices across RelEV groups, domains, and GAD category
+summary_data <- risky_data %>%
+  group_by(RelEV, Trial, GAD_category) %>%
+  summarise(mean_percent_risky = mean(percent_risky, na.rm = TRUE),
+            se_percent_risky = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+            .groups = 'drop')
+
+# Plotting the % risky choices across RelEV groups and domains, faceted by GAD category
+plot <- ggplot(summary_data, aes(x = RelEV, y = mean_percent_risky, color = Trial, group = interaction(Trial, GAD_category))) +
+  geom_point(position = position_dodge(0.8), size = 3) +
+  geom_line(position = position_dodge(0.8), size = 1, alpha = 0.7) +
+  geom_errorbar(aes(ymin = mean_percent_risky - se_percent_risky, ymax = mean_percent_risky + se_percent_risky),
+                position = position_dodge(0.8), width = 0.2) +
+  labs(
+    title = "% Risky Choices in Gain and Loss Domains by RelEV Group",
+    x = "RelEV Group",
+    y = "% Risky Choices"
+  ) +
+  theme_minimal() +
+  poster_theme + 
+  scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral")) +
+  facet_wrap(~ GAD_category)
+
+wilcox_tests <- list()
+
+for (relEV in levels(risky_data$RelEV)) {
+  for (trial in levels(risky_data$Trial)) {
+    test_data <- filter(risky_data, RelEV == relEV, Trial == trial)
+    
+    if (n_distinct(test_data$GAD_category) == 2) {  # Ensure both GAD groups are present
+      wilcox_test <- wilcox.test(percent_risky ~ GAD_category, data = test_data)
+      wilcox_tests[[paste(relEV, trial, sep = "_")]] <- wilcox_test
+    } else {
+      wilcox_tests[[paste(relEV, trial, sep = "_")]] <- NULL
+    }
+  }
+}
+
+# Perform Kruskal-Wallis tests on the risky choices by RelEV for each GAD group and trial type
+kruskal_gain_GAD_less_6 <- kruskal.test(percent_risky ~ RelEV, data = filter(risky_data, Trial == "Gain", GAD_category == "GAD < 6"))
+kruskal_loss_GAD_less_6 <- kruskal.test(percent_risky ~ RelEV, data = filter(risky_data, Trial == "Loss", GAD_category == "GAD < 6"))
+kruskal_gain_GAD_6_plus <- kruskal.test(percent_risky ~ RelEV, data = filter(risky_data, Trial == "Gain", GAD_category == "GAD 6+"))
+kruskal_loss_GAD_6_plus <- kruskal.test(percent_risky ~ RelEV, data = filter(risky_data, Trial == "Loss", GAD_category == "GAD 6+"))
+
+# Return the plot, Wilcoxon tests, and Kruskal-Wallis test results
+return(list(
+  plot = plot,
+  wilcox_tests = wilcox_tests,
+  kruskal_gain_GAD_less_6 = kruskal_gain_GAD_less_6,
+  kruskal_loss_GAD_less_6 = kruskal_loss_GAD_less_6,
+  kruskal_gain_GAD_6_plus = kruskal_gain_GAD_6_plus,
+  kruskal_loss_GAD_6_plus = kruskal_loss_GAD_6_plus
+))
+}
+
+
+
+
+# function to calculate happiness across EVs when SafeChoice Chosen
+mean_happiness_by_RelEV <- function(data) {
+  
+  # Group the data by RelEV and Trial (Gain/Loss) and calculate mean and SE of RawHappiness
+  summary_data <- data %>%
+    group_by(RelEV, Trial) %>%
+    summarise(mean_happiness = mean(HappyRating, na.rm = TRUE),
+              se_happiness = sd(HappyRating, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Set the factor levels for RelEV to order them as Low, Equal, Medium, High
+  summary_data <- summary_data %>%
+    mutate(RelEV = factor(RelEV, levels = c("Low", "Equal", "Medium", "High")),
+           Trial = factor(Trial, levels = c("Gain", "Loss")))
+  
+  # Plotting the mean RawHappiness across RelEV groups and domains
+  plot <- ggplot(summary_data, aes(x = RelEV, y = mean_happiness, color = Trial)) +
+    geom_point(position = position_dodge(0.8), size = 3) +
+    geom_line(aes(linetype = Trial), size = 1, alpha = 0.7) +
+    geom_errorbar(aes(ymin = mean_happiness - se_happiness, ymax = mean_happiness + se_happiness),
+                  position = position_dodge(0.8), width = 0.2) +
+    labs(
+      title = "Mean RawHappiness Across RelEV Groups",
+      x = "RelEV Group",
+      y = "Mean RawHappiness"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral"))
+  
+  return(list(plot = plot, summary_data = summary_data))
+}
+
+# z-scored non-backfilled
+mean_z_happiness_by_RelEV <- function(data) {
+  
+  # Group the data by RelEV and Trial (Gain/Loss) and calculate mean and SE of RawHappiness
+  summary_data <- data %>%
+    group_by(RelEV, Trial) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+              se_happiness = sd(zHappy, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Set the factor levels for RelEV to order them as Low, Equal, Medium, High
+  summary_data <- summary_data %>%
+    mutate(RelEV = factor(RelEV, levels = c("Low", "Equal", "Medium", "High")),
+           Trial = factor(Trial, levels = c("Gain", "Loss")))
+  
+  # Plotting the mean RawHappiness across RelEV groups and domains
+  plot <- ggplot(summary_data, aes(x = RelEV, y = mean_happiness, color = Trial)) +
+    geom_point(position = position_dodge(0.8), size = 3) +
+    geom_line(position = position_dodge(0.8), size = 1) +
+    geom_errorbar(aes(ymin = mean_happiness - se_happiness, ymax = mean_happiness + se_happiness),
+                  position = position_dodge(0.8), width = 0.2) +
+    labs(
+      title = "z-scored RawHappiness Across Relative EV Groups",
+      x = "RelEV Group",
+      y = "z-scored RawHappiness"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral"))
+  
+  return(list(plot = plot, summary_data = summary_data))
+}
+#by GAD
+
+mean_happiness_by_RelEV_GAD <- function(data) {
+  
+  # Add GAD category based on the GAD score
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  data <- na.omit(data)
+  
+  # Group the data by userKey, RelEV, Trial (Gain/Loss), and GAD_category, then calculate mean happiness per user
+  grouped_data <- data %>%
+    group_by(userKey, RelEV, Trial, GAD_category) %>%
+    summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE), .groups = 'drop')
+  
+  # Summarize the data to calculate the mean and SE of RawHappiness across RelEV groups and domains
+  summary_data <- grouped_data %>%
+    group_by(RelEV, Trial, GAD_category) %>%
+    summarise(Mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              se_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Set the factor levels for RelEV to order them as Low, Equal, Medium, High
+  summary_data <- summary_data %>%
+    mutate(RelEV = factor(RelEV, levels = c("Low", "Equal", "Medium", "High")),
+           Trial = factor(Trial, levels = c("Gain", "Loss")),
+           GAD_category = factor(GAD_category, levels = c("GAD < 6", "GAD 6+")))
+  
+  # Plotting the mean RawHappiness across RelEV groups and domains, faceted by GAD category
+  plot <- ggplot(summary_data, aes(x = RelEV, y = Mean_happiness, color = Trial, group = interaction(Trial, GAD_category))) +
+    geom_point(position = position_dodge(0.8), size = 3) +
+    geom_line(position = position_dodge(0.8), size = 1) +
+    geom_errorbar(aes(ymin = Mean_happiness - se_happiness, ymax = Mean_happiness + se_happiness),
+                  position = position_dodge(0.8), width = 0.2) +
+    labs(
+      title = "Mean RawHappiness Across Relative EV Groups by GAD Category",
+      x = "RelEV Group",
+      y = "Mean RawHappiness"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral")) +
+    facet_wrap(~ GAD_category)
+  
+  
+  # Return the results
+  return(list(plot = plot
+  ))
+}
+
+# z-scored non-backfilled
+mean_z_happiness_by_RelEV_GAD <- function(data) {
+  
+  # Add GAD category based on the GAD score
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  data <- na.omit(data)
+  
+  # Group the data by userKey, RelEV, Trial (Gain/Loss), and GAD_category, then calculate mean happiness per user
+  grouped_data <- data %>%
+    group_by(userKey, RelEV, Trial, GAD_category) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE), .groups = 'drop')
+  
+  # Summarize the data to calculate the mean and SE of RawHappiness across RelEV groups and domains
+  summary_data <- grouped_data %>%
+    group_by(RelEV, Trial, GAD_category) %>%
+    summarise(Mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              se_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Set the factor levels for RelEV to order them as Low, Equal, Medium, High
+  summary_data <- summary_data %>%
+    mutate(RelEV = factor(RelEV, levels = c("Low", "Equal", "Medium", "High")),
+           Trial = factor(Trial, levels = c("Gain", "Loss")),
+           GAD_category = factor(GAD_category, levels = c("GAD < 6", "GAD 6+")))
+  
+  # Plotting the mean RawHappiness across RelEV groups and domains, faceted by GAD category
+  plot <- ggplot(summary_data, aes(x = RelEV, y = Mean_happiness, color = Trial, group = interaction(Trial, GAD_category))) +
+    geom_point(position = position_dodge(0.8), size = 3) +
+    geom_line(aes(group = interaction(Trial, GAD_category)), position = position_dodge(0.8), size = 1) +
+    geom_errorbar(aes(ymin = Mean_happiness - se_happiness, ymax = Mean_happiness + se_happiness),
+                  position = position_dodge(0.8), width = 0.2) +
+    labs(
+      title = "Mean RawHappiness Across Relative EV Groups by GAD Category",
+      x = "RelEV Group",
+      y = "Mean RawHappiness"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral")) +
+    facet_wrap(~ GAD_category)
+  
+  
+  # Return the results
+  return(list(plot = plot
+  ))
+}
+
+kruskal_happiness_by_RelEV_GAD <- function(data) {
+  
+  # Add GAD category based on the GAD score
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Group by userKey, RelEV, and Trial to calculate the mean RawHappiness per user
+  grouped_data <- data %>%
+    group_by(userKey, RelEV, Trial, GAD_category) %>%
+    summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE), .groups = 'drop')
+  
+  # Perform Kruskal-Wallis tests for each group
+  kruskal_gain_all <- kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Gain"))
+  kruskal_loss_all <- kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Loss"))
+  kruskal_gain_GAD_less_6 <- kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD < 6"))
+  kruskal_loss_GAD_less_6 <- kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD < 6"))
+  kruskal_gain_GAD_6_plus <- kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD 6+"))
+  kruskal_loss_GAD_6_plus <- kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD 6+"))
+  
+  # for Dunn Test
+  loss_data_GAD_less_6 <- filter(grouped_data, Trial == "Loss", GAD_category == "GAD < 6")
+  loss_data_GAD_6_plus<- filter(grouped_data, Trial == "Loss", GAD_category == "GAD 6+")
+  
+  
+  dunn_result_GAD_less_6 <- dunn.test(x = loss_data_GAD_less_6$mean_happiness, g = loss_data_GAD_less_6$RelEV, method = "bonferroni")
+  dunn_result_GAD_6_plus <- dunn.test(x = loss_data_GAD_6_plus$mean_happiness, g = loss_data_GAD_6_plus$RelEV, method = "bonferroni")
+  
+  # Return the results
+  return(list(
+    kruskal_gain_all = kruskal_gain_all,
+    kruskal_loss_all = kruskal_loss_all,
+    kruskal_gain_GAD_less_6 = kruskal_gain_GAD_less_6,
+    kruskal_loss_GAD_less_6 = kruskal_loss_GAD_less_6,
+    kruskal_gain_GAD_6_plus = kruskal_gain_GAD_6_plus,
+    kruskal_loss_GAD_6_plus = kruskal_loss_GAD_6_plus,
+    dunn_result_GAD_less_6 = dunn_result_GAD_less_6,
+    dunn_result_GAD_6_plus = dunn_result_GAD_6_plus
+  ))
+}
+
+# raw EV
+# z-scored non-backfilled
+mean_z_happiness_by_EV_GAD <- function(data) {
+  
+  # Add GAD category based on the GAD score
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  data <- na.omit(data)
+  
+  # Group the data by userKey, RelEV, Trial (Gain/Loss), and GAD_category, then calculate mean happiness per user
+  grouped_data <- data %>%
+    group_by(userKey, RiskyEV, Trial, GAD_category) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE), .groups = 'drop')
+  
+  # Summarize the data to calculate the mean and SE of RawHappiness across RelEV groups and domains
+  summary_data <- grouped_data %>%
+    group_by(RiskyEV, Trial, GAD_category) %>%
+    summarise(Mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              se_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Set the factor levels for RelEV to order them as Low, Equal, Medium, High
+  summary_data <- summary_data %>%
+    mutate(RelEV = factor(RiskyEV, levels = c("Low", "Equal", "Medium", "High")),
+           Trial = factor(Trial, levels = c("Gain", "Loss")),
+           GAD_category = factor(GAD_category, levels = c("GAD < 6", "GAD 6+")))
+  
+  # Plotting the mean RawHappiness across RelEV groups and domains, faceted by GAD category
+  plot <- ggplot(summary_data, aes(x = RiskyEV, y = Mean_happiness, color = Trial)) +
+    geom_point(position = position_dodge(0.8), size = 3) +
+    geom_line(position = position_dodge(0.8), size = 1) +
+    geom_errorbar(aes(ymin = Mean_happiness - se_happiness, ymax = Mean_happiness + se_happiness),
+                  position = position_dodge(0.8), width = 0.2) +
+    labs(
+      title = "z-scored RawHappiness Across RelEV Groups by GAD Category",
+      x = "RiskyEV Group",
+      y = "z-scored Happiness"
+    ) +
+    theme_minimal() +
+    poster_theme + 
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral")) +
+    facet_wrap(~ GAD_category)
+  
+  
+  # Return the results
+  return(list(plot = plot
+  ))
+}
+
+mean_happiness_by_RiskyProb_GAD <- function(data) {
+  
+  # Add GAD category based on the GAD score
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  data <- na.omit(data)
+  
+  # Group the data by userKey, RiskyProb, Trial (Gain/Loss), and GAD_category, then calculate mean happiness per user
+  grouped_data <- data %>%
+    group_by(userKey, RiskyProb, Trial, GAD_category) %>%
+    summarise(mean_happiness = mean(HappyRating*100, na.rm = TRUE), .groups = 'drop')
+  
+  # Summarize the data to calculate the mean and SE of RawHappiness across RiskyProb groups and domains
+  summary_data <- grouped_data %>%
+    group_by(RiskyProb, Trial, GAD_category) %>%
+    summarise(Mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              se_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Set the factor levels for RiskyProb to order them as specified
+  summary_data <- summary_data %>%
+    mutate(RiskyProb = factor(RiskyProb, levels = c("0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7")),
+           Trial = factor(Trial, levels = c("Gain", "Loss")),
+           GAD_category = factor(GAD_category, levels = c("GAD < 6", "GAD 6+")))
+  
+  # Plotting the mean RawHappiness across RiskyProb groups and domains, faceted by GAD category
+  plot <- ggplot(summary_data, aes(x = RiskyProb, y = Mean_happiness, color = Trial, group = interaction(Trial, GAD_category))) +
+    geom_point(size = 2, position = position_dodge(0.7)) +
+    geom_line(position = position_dodge(0.7), size = 1) +  
+    geom_errorbar(aes(ymin = Mean_happiness - se_happiness, ymax = Mean_happiness + se_happiness),
+                  position = position_dodge(0.8), width = 0.2) +
+    labs(
+      title = "Mean RawHappiness Across Risky Probabilities",
+      x = "Risky Probability",
+      y = "Mean RawHappiness"
+    ) +
+    theme_minimal() +
+    poster_theme+
+    ylim(40, 65) +  # Adjust the y-axis limit as needed
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral")) +
+    facet_wrap(~ GAD_category)
+  
+  # Perform Kruskal-Wallis tests for each GAD category and trial type
+  kruskal_tests <- list(
+    kruskal_gain_GAD_6_plus = kruskal.test(mean_happiness ~ RiskyProb, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD 6+")),
+    kruskal_gain_GAD_less_6 = kruskal.test(mean_happiness ~ RiskyProb, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD < 6")),
+    kruskal_loss_GAD_6_plus = kruskal.test(mean_happiness ~ RiskyProb, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD 6+")),
+    kruskal_loss_GAD_less_6 = kruskal.test(mean_happiness ~ RiskyProb, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD < 6"))
+  )
+  
+  # Return the plot and Kruskal-Wallis test results
+  return(list(plot = plot, kruskal_tests = kruskal_tests))
+}
+
+mean_z_happiness_by_RiskyProb_GAD <- function(data) {
+  
+  # Add GAD category based on the GAD score
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  data <- na.omit(data)
+  
+  # Group the data by userKey, RiskyProb, Trial (Gain/Loss), and GAD_category, then calculate mean happiness per user
+  grouped_data <- data %>%
+    group_by(userKey, RiskyProb, Trial, GAD_category) %>%
+    summarise(mean_happiness = mean(zHappy, na.rm = TRUE),
+              mean_pred_happiness = mean(zHappyPred, na.rm = TRUE), .groups = 'drop')
+  
+  # Summarize the data to calculate the mean and SE of RawHappiness across RiskyProb groups and domains
+  summary_data <- grouped_data %>%
+    group_by(RiskyProb, Trial, GAD_category) %>%
+    summarise(Mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              se_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              Mean_pred_happiness = mean(mean_pred_happiness, na.rm = TRUE),
+              .groups = 'drop')
+  
+  # Set the factor levels for RiskyProb to order them as specified
+  summary_data <- summary_data %>%
+    mutate(RiskyProb = factor(RiskyProb, levels = c("0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7")),
+           Trial = factor(Trial, levels = c("Gain", "Loss")),
+           GAD_category = factor(GAD_category, levels = c("GAD < 6", "GAD 6+")))
+  
+  # Plotting the mean RawHappiness across RiskyProb groups and domains, faceted by GAD category
+  plot <- ggplot(summary_data, aes(x = RiskyProb, y = Mean_happiness, color = Trial, group = interaction(Trial, GAD_category))) +
+    geom_point(size = 2, position = position_dodge(0.7)) +
+    geom_line(position = position_dodge(0.7), size = 1) + 
+    geom_errorbar(aes(ymin = Mean_happiness - se_happiness, ymax = Mean_happiness + se_happiness),
+                  position = position_dodge(0.8), width = 0.2) +
+    geom_point(aes(y = Mean_pred_happiness), color = "lightblue", shape = 8, size = 3, position = position_dodge(0.7)) +  # Add predicted happiness
+    labs(
+      title = "Mean z-scored Happiness Across Risky Probabilities",
+      x = "Risky Probability",
+      y = "z-scored Happiness"
+    ) +
+    ylim(-0.4, 0.4) + 
+    theme_minimal() +
+    poster_theme +
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral")) +
+    facet_wrap(~ GAD_category)
+  
+  # Perform Kruskal-Wallis tests for each GAD category and trial type
+  kruskal_tests <- list(
+    kruskal_gain_GAD_6_plus = kruskal.test(mean_happiness ~ RiskyProb, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD 6+")),
+    kruskal_gain_GAD_less_6 = kruskal.test(mean_happiness ~ RiskyProb, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD < 6")),
+    kruskal_loss_GAD_6_plus = kruskal.test(mean_happiness ~ RiskyProb, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD 6+")),
+    kruskal_loss_GAD_less_6 = kruskal.test(mean_happiness ~ RiskyProb, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD < 6"))
+  )
+  
+  # Return the plot and Kruskal-Wallis test results
+  return(list(plot = plot, kruskal_tests = kruskal_tests))
+}
+
+
+# by EV and outcome (win)
+mean_happiness_by_RelEV_GAD_Outcome <- function(data) {
+  
+  # Add GAD category based on the GAD score
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  # Determine the OutcomeType (Win/Loss) based on the Trial type
+  data <- data %>%
+    mutate(OutcomeType = ifelse((Trial == "Gain" & Outcome != 0) | 
+                                  (Trial == "Loss" & Outcome == 0), "Win", "Loss"))
+  
+  data <- na.omit(data)
+  
+  # Group the data by userKey, RelEV, Trial (Gain/Loss), GAD_category, and OutcomeType, then calculate mean happiness per user
+  grouped_data <- data %>%
+    group_by(userKey, RelEV, Trial, GAD_category, OutcomeType) %>%
+    summarise(mean_happiness = mean(HappyRating, na.rm = TRUE), .groups = 'drop')
+  
+  # Summarize the data to calculate the mean and SE of RawHappiness across RelEV groups, domains, and outcome types
+  summary_data <- grouped_data %>%
+    group_by(RelEV, Trial, GAD_category, OutcomeType) %>%
+    summarise(Mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              se_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Set the factor levels for RelEV to order them as Low, Equal, Medium, High
+  summary_data <- summary_data %>%
+    mutate(RelEV = factor(RelEV, levels = c("Low", "Equal", "Medium", "High")),
+           Trial = factor(Trial, levels = c("Gain", "Loss")),
+           GAD_category = factor(GAD_category, levels = c("GAD < 6", "GAD 6+")),
+           OutcomeType = factor(OutcomeType, levels = c("Win", "Loss")))
+  
+  # Plotting the mean RawHappiness across RelEV groups, domains, and outcome types, faceted by GAD category
+  plot <- ggplot(summary_data, aes(x = RelEV, y = Mean_happiness, fill = OutcomeType)) +
+    geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7, color = "black") +
+    geom_errorbar(aes(ymin = Mean_happiness - se_happiness, ymax = Mean_happiness + se_happiness),
+                  position = position_dodge(0.8), width = 0.2) +
+    labs(
+      title = "Mean RawHappiness Across RelEV Groups by GAD Category and Outcome",
+      x = "RelEV Group",
+      y = "Mean RawHappiness"
+    ) +
+    theme_minimal() +
+    ylim(0, 75) +  # Adjust the y-axis limit as needed
+    scale_fill_manual(values = c("Win" = "darkgreen", "Loss" = "coral")) +
+    facet_wrap(~ Trial + GAD_category)
+  
+  # Perform Kruskal-Wallis tests for the 8 conditions
+  kruskal_tests <- list(
+    kruskal_gain_win_GAD_6_plus = kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD 6+", OutcomeType == "Win")),
+    kruskal_gain_loss_GAD_6_plus = kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD 6+", OutcomeType == "Loss")),
+    kruskal_loss_win_GAD_6_plus = kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD 6+", OutcomeType == "Win")),
+    kruskal_loss_loss_GAD_6_plus = kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD 6+", OutcomeType == "Loss")),
+    
+    kruskal_gain_win_GAD_less_6 = kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD < 6", OutcomeType == "Win")),
+    kruskal_gain_loss_GAD_less_6 = kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD < 6", OutcomeType == "Loss")),
+    kruskal_loss_win_GAD_less_6 = kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD < 6", OutcomeType == "Win")),
+    kruskal_loss_loss_GAD_less_6 = kruskal.test(mean_happiness ~ RelEV, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD < 6", OutcomeType == "Loss"))
+  )
+  
+  # Return the plot and Kruskal-Wallis test results
+  return(list(plot = plot, kruskal_tests = kruskal_tests))
+}
+
+
+
+
+# magnitude
+mean_z_happiness_by_magnitude_GAD <- function(data) {
+  
+  # Add GAD category based on the GAD score
+  data <- data %>%
+    mutate(GAD_category = ifelse(gad7_total >= 6, "GAD 6+", "GAD < 6"))
+  
+  data <- na.omit(data)
+  
+  # Group the data by userKey, RiskyProb, Trial (Gain/Loss), and GAD_category, then calculate mean happiness per user
+  grouped_data <- data %>%
+    group_by(userKey, RiskyValue, Trial, GAD_category) %>%
+    summarise(mean_happiness = mean(HappyRating_z, na.rm = TRUE), .groups = 'drop')
+  
+  # Summarize the data to calculate the mean and SE of RawHappiness across RiskyProb groups and domains
+  summary_data <- grouped_data %>%
+    group_by(RiskyValue, Trial, GAD_category) %>%
+    summarise(Mean_happiness = mean(mean_happiness, na.rm = TRUE),
+              se_happiness = sd(mean_happiness, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  # Set the factor levels for RiskyProb to order them as specified
+  summary_data <- summary_data %>%
+    mutate(RiskyValue = factor(RiskyValue),
+           Trial = factor(Trial, levels = c("Gain", "Loss")),
+           GAD_category = factor(GAD_category, levels = c("GAD < 6", "GAD 6+")))
+  
+  # Plotting the mean RawHappiness across RiskyProb groups and domains, faceted by GAD category
+  plot <- ggplot(summary_data, aes(x = RiskyValue, y = Mean_happiness, color = Trial, group = interaction(Trial, GAD_category))) +
+    geom_point(size = 2, position = position_dodge(0.7)) +
+    geom_line(position = position_dodge(0.7), size = 1) + 
+    geom_errorbar(aes(ymin = Mean_happiness - se_happiness, ymax = Mean_happiness + se_happiness),
+                  position = position_dodge(0.8), width = 0.2) +
+    labs(
+      title = "Mean z-scored Happiness Across Risky Value",
+      x = "Risky Value",
+      y = "z-scored Happiness"
+    ) +
+    ylim(-0.3,0.3) + 
+    theme_minimal() +
+    poster_theme +
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral")) +
+    facet_wrap(~ GAD_category)
+  
+  
+  # Perform Kruskal-Wallis tests for each GAD category and trial type
+  kruskal_tests <- list(
+    kruskal_gain_GAD_6_plus = kruskal.test(mean_happiness ~ RiskyValue, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD 6+")),
+    kruskal_gain_GAD_less_6 = kruskal.test(mean_happiness ~ RiskyValue, data = filter(grouped_data, Trial == "Gain", GAD_category == "GAD < 6")),
+    kruskal_loss_GAD_6_plus = kruskal.test(mean_happiness ~ RiskyValue, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD 6+")),
+    kruskal_loss_GAD_less_6 = kruskal.test(mean_happiness ~ RiskyValue, data = filter(grouped_data, Trial == "Loss", GAD_category == "GAD < 6"))
+  )
+  
+  # Return the plot and Kruskal-Wallis test results
+  return(list(plot = plot, kruskal_tests = kruskal_tests))
+}
+

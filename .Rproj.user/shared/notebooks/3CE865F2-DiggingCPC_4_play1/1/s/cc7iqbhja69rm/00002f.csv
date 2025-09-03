@@ -1,0 +1,72 @@
+"0","current_pos_future_pos <- happyData1 %>%
+  filter(NextIsland == 2 & LastIsland == 2 & Trial == ""Gain"") %>%
+  group_by(userKey) %>%
+  summarise(mean_happiness = mean(zHappy_filled, na.rm = TRUE),
+            mean_pred_happiness = mean(zHappyPred_filled, na.rm = TRUE), 
+            .groups = 'drop') %>%
+  mutate(Future = ""Positive"",
+         Current = ""Gain"") %>%
+    group_by(Future, Current) %>%
+  summarise(overall_mean_happiness = mean(mean_happiness),
+            sem_happiness = sd(mean_happiness)/sqrt(n())) 
+"
+"1","[38;5;254m`summarise()` has grouped output by 'Future'. You can override using the `.groups` argument.[39m
+"
+"0",""
+"0","current_pos_future_neg <- happyData1 %>%"
+"0","  filter(NextIsland == 1 & LastIsland == 1 & Trial == ""Gain"") %>%"
+"0","  group_by(userKey, ) %>%"
+"0","  summarise(mean_happiness = mean(zHappy_filled, na.rm = TRUE),"
+"0","            mean_pred_happiness = mean(zHappyPred_filled, na.rm = TRUE), "
+"0","            .groups = 'drop') %>%"
+"0","  mutate(Future = ""Negative"","
+"0","         Current = ""Gain"")  %>%"
+"0","    group_by(Future, Current) %>%"
+"0","  summarise(overall_mean_happiness = mean(mean_happiness),"
+"0","            sem_happiness = sd(mean_happiness)/sqrt(n())) "
+"1","[38;5;254m`summarise()` has grouped output by 'Future'. You can override using the `.groups` argument.[39m
+"
+"0","current_neg_future_pos <- happyData1 %>%"
+"0","  filter(NextIsland == 2 & LastIsland == 2, Trial == ""Loss"") %>%"
+"0","  group_by(userKey) %>%"
+"0","  summarise(mean_happiness = mean(zHappy_filled, na.rm = TRUE),"
+"0","            mean_pred_happiness = mean(zHappyPred_filled, na.rm = TRUE), "
+"0","            .groups = 'drop') %>%"
+"0","  mutate(Future = ""Positive"","
+"0","         Current = ""Loss"")  %>%"
+"0","    group_by(Future, Current) %>%"
+"0","  summarise(overall_mean_happiness = mean(mean_happiness),"
+"0","            sem_happiness = sd(mean_happiness)/sqrt(n())) "
+"1","[38;5;254m`summarise()` has grouped output by 'Future'. You can override using the `.groups` argument.[39m
+"
+"0","current_neg_future_neg <- happyData1 %>%"
+"0","  filter(NextIsland == 1 & LastIsland == 1., Trial == ""Loss"") %>%"
+"0","  group_by(userKey) %>%"
+"0","  summarise(mean_happiness = mean(zHappy_filled, na.rm = TRUE),"
+"0","            mean_pred_happiness = mean(zHappyPred_filled, na.rm = TRUE), "
+"0","            .groups = 'drop') %>%"
+"0","  mutate(Future = ""Negative"","
+"0","         Current = ""Loss"")  %>%"
+"0","    group_by(Future, Current) %>%"
+"0","  summarise(overall_mean_happiness = mean(mean_happiness),"
+"0","            sem_happiness = sd(mean_happiness)/sqrt(n())) "
+"1","[38;5;254m`summarise()` has grouped output by 'Future'. You can override using the `.groups` argument.[39m
+"
+"0","  # Combine results"
+"0","combined_happy <- bind_rows(current_pos_future_pos, current_pos_future_neg, current_neg_future_pos,current_neg_future_neg)"
+"0","combined_happy <- na.omit(combined_happy)"
+"0",""
+"0","# overall"
+"0"," ggplot(combined_happy, aes(x = Future, y = overall_mean_happiness, fill = Current,group=Future)) +"
+"0","    geom_bar(stat = ""identity"", position = position_dodge(0.7), width = 0.7, color = ""black"",group=""Future"") +"
+"0","     geom_errorbar(aes(ymin = overall_mean_happiness - sem_happiness, ymax = overall_mean_happiness + sem_happiness),"
+"0","                  position = position_dodge(0.7), width = 0.2,group=""Future"") +"
+"0","    geom_hline(yintercept = 0, linetype = ""dotted"", color = ""black"") +  # Add a dotted line at y=0"
+"0","    scale_fill_manual(values = c(""Gain"" = ""gold"", ""Loss"" = ""coral"")) +"
+"0","    labs("
+"0","      title = ""z-scored Happiness based on Future and Current"","
+"0","      x = ""Future"","
+"0","      y = ""z-scored Happiness"""
+"0","    ) +"
+"0","    theme_minimal() +"
+"0","    poster_theme "

@@ -1,0 +1,133 @@
+"0","# anxiety diagnosis
+anx <- happyData1_past_diag %>%
+  filter(diagnosis_depression==""no dep"")
+
+sample_size = length(unique(anx$userKey))
+
+# current gain, past positive, future positive
+current_pos_past_pos_future_pos <- anx %>%
+  filter(NextIsland == 2, PastIsland == 2, Trial == ""Gain"") %>%
+  group_by(userKey) %>%
+  summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop') %>%
+  mutate(Past = ""Positive Past"",
+         Future = ""Positive Future"",
+         Current = ""Gain"")
+
+# current gain, past negative, future negative
+current_pos_past_neg_future_neg <- anx %>%
+  filter(NextIsland == 1, PastIsland == 1, Trial == ""Gain"") %>%
+  group_by(userKey) %>%
+  summarise(total_choices = n(),
+                          risky_choices = sum(Choice == 2, na.rm = TRUE),
+
+            percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop') %>%
+  mutate(Past  = ""Negative Past"",
+         Future = ""Negative Future"",
+         Current = ""Gain"")
+  
+# current loss, past positive, future positive
+current_neg_past_pos_future_pos <- anx %>%
+  filter(NextIsland == 2, PastIsland == 2 , Trial == ""Loss"") %>%
+  group_by(userKey) %>%
+  summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop') %>%
+  mutate(Past= ""Positive Past"",
+         Future=""Positive Future"",
+         Current = ""Loss"")
+
+
+# current loss, past negative, future negative
+current_neg_past_neg_future_neg <- anx %>%
+  filter(NextIsland == 1, PastIsland == 1, Trial == ""Loss"") %>%
+  group_by(userKey) %>%
+  summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop') %>%
+  mutate(Past = ""Negative Past"",
+         Future = ""Negative Future"",
+         Current = ""Loss"")
+
+# current gain, past negative, future positive
+current_pos_past_neg_future_pos <- anx %>%
+  filter(NextIsland == 2, PastIsland == 1, Trial == ""Gain"") %>%
+  group_by(userKey) %>%
+  summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop') %>%
+  mutate(Past = ""Negative Past"",
+         Future = ""Positive Future"",
+         Current = ""Gain"")
+
+# current gain, past positive, future negative
+current_pos_past_pos_future_neg <- anx %>%
+  filter(NextIsland == 1, PastIsland == 2, Trial == ""Gain"") %>%
+  group_by(userKey) %>%
+  summarise(total_choices = n(),
+                          risky_choices = sum(Choice == 2, na.rm = TRUE),
+
+            percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop') %>%
+  mutate(Past = ""Positive Past"",
+         Future = ""Negative Future"",
+         Current = ""Gain"")
+  
+# current loss, past negative, future positive
+current_neg_past_neg_future_pos <- anx %>%
+  filter(NextIsland == 2, PastIsland == 1 , Trial == ""Loss"") %>%
+  group_by(userKey) %>%
+  summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop') %>%
+  mutate(Past = ""Negative Past"",
+         Future = ""Positive Future"",
+         Current = ""Loss"")
+
+
+# current loss, past positive, future negative
+current_neg_past_pos_future_neg <- anx %>%
+  filter(NextIsland == 1, PastIsland == 2, Trial == ""Loss"") %>%
+  group_by(userKey) %>%
+  summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop') %>%
+  mutate(Past = ""Positive Past"",
+         Future = ""Negative Future"",
+         Current = ""Loss"")
+  
+  # Combine results
+combined_risky <- bind_rows(current_pos_past_neg_future_pos, current_pos_past_pos_future_neg, current_neg_past_neg_future_pos,current_neg_past_pos_future_neg,current_pos_past_pos_future_pos,current_pos_past_neg_future_neg,current_neg_past_pos_future_pos,current_neg_past_neg_future_neg)
+
+summary_combined <- combined_risky %>%
+  group_by(Current, Past, Future) %>%
+  summarise(mean_risky = mean(percent_risky,na.rm=TRUE),
+            sem_risky = sd(percent_risky, na.rm = TRUE) / sqrt(n()))
+"
+"2","`summarise()` has grouped output by 'Current', 'Past'. You can override using the `.groups` argument."
+"0",""
+"0","  # Plotting"
+"0","  ggplot(summary_combined, aes(x = Past, y = mean_risky, color = Future, group = Future)) +"
+"0","    geom_point(position = position_dodge(0.7), width = 0.7) +"
+"0","    geom_line(position = position_dodge(0.7), aes(group = Future)) +  # Add lines connecting points within groups"
+"0","    geom_errorbar(aes(ymin = mean_risky - sem_risky, ymax = mean_risky + sem_risky),"
+"0","                  position = position_dodge(0.7), width = 0.2) + "
+"0","    geom_hline(yintercept = 50, linetype = ""dotted"", color = ""black"") +  # Add a dotted line at y=0"
+"0","    labs("
+"0","title = paste0(""% Risky Choices based on Past and Future (N="", sample_size, "")""),"
+"0","      x = ""Past"","
+"0","      y = ""% Risky Choices"""
+"0","    ) +"
+"0","    theme_minimal() +"
+"0","    ylim(40, 70) +"
+"0","    poster_theme +"
+"0","    facet_wrap(~Current)"
+"2","Warning: [38;5;253mIgnoring unknown parameters: `width`[39m"

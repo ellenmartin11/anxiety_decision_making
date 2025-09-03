@@ -1,0 +1,55 @@
+"0",""
+"0","# RUN EVERYTIME YOU SWITHC PLAYS"
+"0","data_path <- ""C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\data\\happyData\\"""
+"0",""
+"0","# play one for people with at least one play "
+"0","#one_long_file_z <- paste0(data_path,""z\\THP_uk_DiggingHappy1_z_n8081.csv"") #zscored"
+"0","one_long_file_z <- paste0(data_path,""z\\THP_uk_DiggingHappy2_z_n2214.csv"") #zscored"
+"0",""
+"0","# parameters and model fits data"
+"0","#happy_file_one_z <- paste0(data_path, ""modelBased\\z\\happy_params4_play1_z_n7579.csv"")"
+"0","happy_file_one_z <- paste0(data_path, ""modelBased\\z\\happy_params4_play2_z_n2214.csv"")"
+"0",""
+"0","# survey data"
+"0","survey_file <- paste0(""C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv"")"
+"0",""
+"0","# initial quiz data"
+"0","initquiz_file <- paste0(data_path, ""THP_uk_initquiz.csv"")"
+"0","###"
+"0","### Merging with survey data and backfilling"
+"0","###"
+"0","T_digging_long_z <- process_digging_long_z(one_long_file_z)"
+"1","[1mRows: [22m[34m66416[39m [1mColumns: [22m[34m18[39m
+"
+"1","[36m──[39m [1mColumn specification[22m [36m─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m  (1): userKey
+[32mdbl[39m (17): TrialNumber, SafeProb, SafeValue, RiskyProb, RiskyValue, RiskySide, Choice, Outcome, RevealDepth, NextIsland, LastIsland, zHappy, HappyRT, PlayNo, col15, col16, zHappyPred
+"
+"1","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message.
+"
+"0","length(unique(T_digging_long_z$userKey)) #N=2200"
+"1","[1]"
+"1"," 2200"
+"1","
+"
+"0","T_digging_long_z <- process_params_z(T_digging_long_z,happy_file_one_z)"
+"1","[1mRows: [22m[34m2214[39m [1mColumns: [22m[34m9[39m
+"
+"1","[36m──[39m [1mColumn specification[22m [36m─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+[1mDelimiter:[22m "",""
+[31mchr[39m (1): userKey
+[32mdbl[39m (8): b_evrpe_1, b_evrpe_2, b_evrpe_3, b_evrpe_4, r2, sse, aic, bic
+"
+"1","
+[36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
+[36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message.
+"
+"0","length(unique(T_digging_long_z$userKey)) #2200"
+"1","[1]"
+"1"," 2200"
+"1","
+"
+"0","head(T_digging_long_z)"

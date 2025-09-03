@@ -1,0 +1,10 @@
+"0","happy_data <- happyData1_ev %>%
+  group_by(userKey, Trial, RiskyEV) %>%
+  summarise(
+    mean_zhappy = mean(zHappy,na.rm=TRUE)
+    sem_zhappy = sd(zHappy,na.rm=TRUE)/ sqrt(n())
+"
+"2","Error: unexpected symbol in:
+""    mean_zhappy = mean(zHappy,na.rm=TRUE)
+    sem_zhappy""
+"

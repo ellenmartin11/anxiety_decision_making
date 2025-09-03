@@ -1,0 +1,344 @@
+---
+title: "Summary Plots Digging"
+author: "Ellen Martin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Read in the play 1 data ahead of time using other script.
+
+
+
+```{r Summary Plot % Risk-Taking Based on Future in Gain Domain}
+
+sample_size = length(unique(happyData1$userKey))
+
+gamb_future <- happyData1 %>%
+  mutate(Future = case_when(NextIsland == 2 ~ "Positive",
+                            NextIsland == 1 ~ "Negative")) %>% 
+  filter(Trial=="Gain") %>% # selecting only gain domain
+  group_by(userKey,Future) %>%
+  summarise(total_choices = n(),
+            risky_choices = sum(Choice == 2, na.rm = TRUE),
+            percent_risky = (risky_choices / total_choices) * 100,
+            .groups = 'drop')
+
+summary_gamb_future <- gamb_future %>%
+  group_by(Future) %>%
+  summarise(mean_gambling = mean(percent_risky),
+            sem_gambling = sd(percent_risky)/sqrt(n())) %>%
+  na.omit()
+
+fig1a <- ggplot(summary_gamb_future, aes(x=Future, y=mean_gambling, color=Future)) +
+    geom_point(position = position_dodge(0.3), width = 0.3) +
+    geom_errorbar(aes(ymin = mean_gambling - sem_gambling, ymax = mean_gambling + sem_gambling),
+                  position = position_dodge(0.3), width = 0.1) + 
+    geom_hline(yintercept = 50, linetype = "dotted", color = "black") +  
+    scale_color_manual(values = c("Positive" = "#FFD700", "Negative" = "#FF6347")) +
+    labs(
+      title = paste0("% Gambling based on Future (Gain Domain) (N=", sample_size, ")"),
+      x = "Future",
+      y = "% Risky Choices"
+    ) +
+    ylim(40,70) + 
+    theme_minimal() +
+    poster_theme 
+
+print(fig1a)
+
+# summary: increased gambling when the future is positive vs negative in gain domain. 
+
+```
+
+### Split by Anxiety vs No Anxiety Diagnosis
+```{r Summary Plot % Risk-Taking Based on Future in Gain Domain and Diagnosis}
+
+sample_size = length(unique(happyData1_diag$userKey))
+
+# Prepare data for plotting
+gamb_future <- happyData1_diag %>%
+  mutate(Future = case_when(NextIsland == 2 ~ "Positive",
+                            NextIsland == 1 ~ "Negative")) %>% 
+  filter(Trial == "Gain") %>%  # selecting only gain domain
+  group_by(userKey, Future, diagnosis_anxiety) %>%
+  summarise(total_choices = n(),
+            risky_choices = sum(Choice == 2, na.rm = TRUE),
+            percent_risky = (risky_choices / total_choices) * 100,
+            .groups = 'drop')
+
+# Summarize the data for plotting
+summary_gamb_future <- gamb_future %>%
+  group_by(Future, diagnosis_anxiety) %>%
+  summarise(mean_gambling = mean(percent_risky, na.rm = TRUE),
+            sem_gambling = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+            .groups = 'drop')
+
+# Create the plot with facet_wrap for "anx" and "no anx" groups
+fig1b <- ggplot(summary_gamb_future, aes(x = Future, y = mean_gambling, color = Future)) +
+  geom_point(position = position_dodge(0.3)) +
+  geom_errorbar(aes(ymin = mean_gambling - sem_gambling, ymax = mean_gambling + sem_gambling),
+                position = position_dodge(0.3), width = 0.1) +
+  geom_hline(yintercept = 50, linetype = "dotted", color = "black") +
+  scale_color_manual(values = c("Positive" = "#FFD700", "Negative" = "#FF6347")) +
+  labs(
+    title = paste0("% Gambling based on Future (Gain Domain) (N = ", sample_size, ")"),
+    x = "Future",
+    y = "% Risky Choices"
+  ) +
+  ylim(40, 70) +
+  theme_minimal() +
+  poster_theme + 
+  facet_wrap(~ diagnosis_anxiety, labeller = labeller(diagnosis_anxiety = c("anx" = "Anxiety", "no anx" = "No Anxiety")))
+
+# Display the plot
+print(fig1b)
+
+
+```
+
+### Depression Diagnoses
+
+```{r Summary Plot % Risk-Taking Based on Future in Gain Domain and Diagnosis}
+
+sample_size = length(unique(happyData1_diag$userKey))
+
+# Prepare data for plotting
+gamb_future <- happyData1_diag %>%
+  mutate(Future = case_when(NextIsland == 2 ~ "Positive",
+                            NextIsland == 1 ~ "Negative")) %>% 
+  filter(Trial == "Gain") %>%  # selecting only gain domain
+  group_by(userKey, Future, diagnosis_depression) %>%
+  summarise(total_choices = n(),
+            risky_choices = sum(Choice == 2, na.rm = TRUE),
+            percent_risky = (risky_choices / total_choices) * 100,
+            .groups = 'drop')
+
+# Summarize the data for plotting
+summary_gamb_future <- gamb_future %>%
+  group_by(Future, diagnosis_depression) %>%
+  summarise(mean_gambling = mean(percent_risky, na.rm = TRUE),
+            sem_gambling = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+            .groups = 'drop') %>%
+  na.omit()
+
+# Create the plot with facet_wrap for "dep" and "no dep" groups
+fig1b2 <- ggplot(summary_gamb_future, aes(x = Future, y = mean_gambling, color = Future)) +
+  geom_point(position = position_dodge(0.3)) +
+  geom_errorbar(aes(ymin = mean_gambling - sem_gambling, ymax = mean_gambling + sem_gambling),
+                position = position_dodge(0.3), width = 0.1) +
+  geom_hline(yintercept = 50, linetype = "dotted", color = "black") +
+  scale_color_manual(values = c("Positive" = "#FFD700", "Negative" = "#FF6347")) +
+  labs(
+    title = paste0("% Gambling based on Future (Gain Domain) (N = ", sample_size, ")"),
+    x = "Future",
+    y = "% Risky Choices"
+  ) +
+  ylim(40, 70) +
+  theme_minimal() +
+  poster_theme + 
+  facet_wrap(~ diagnosis_depression, labeller = labeller(diagnosis_depression = c("dep" = "Depression", "no dep" = "No Depression")))
+
+# Display the plot
+print(fig1b2)
+
+
+```
+
+### Past
+
+```{r Summary Plot % Risk-Taking Based on Past in Gain Domain and Diagnosis}
+
+happyData1_past_diag <- happyData1_diag %>%
+  arrange(userKey, TrialNumber) %>%
+  group_by(userKey) %>%
+  mutate(
+    # Create an indicator for valid happiness ratings
+    happyind = !is.na(zHappy),
+    
+    # Identify if the current trial is on the same island as the previous valid happiness rating
+    prev_happyind_trial = lag(Trial, order_by = TrialNumber),  # Previous trial type (Gain/Loss)
+    
+    # Set PastIsland based on the previous valid happiness rating's trial type
+    PastIsland = case_when(
+      lag(happyind, order_by = TrialNumber) & prev_happyind_trial == "Gain" ~ 2,
+      lag(happyind, order_by = TrialNumber) & prev_happyind_trial == "Loss" ~ 1,
+      TRUE ~ NA_real_  # NA for the first island or no previous valid row
+    )
+  ) %>%
+  ungroup()
+
+happyData1_past_diag <- happyData1_past_diag %>%
+  fill(PastIsland, .direction = "up")
+
+
+
+sample_size = length(unique(happyData1_past_diag$userKey))
+
+# Prepare data for plotting
+gamb_past <- happyData1_past_diag %>%
+  mutate(Past = case_when(PastIsland == 2 ~ "Positive",
+                            PastIsland == 1 ~ "Negative")) %>% 
+  filter(Trial == "Gain") %>%  # selecting only gain domain
+  group_by(userKey, Past, diagnosis_anxiety) %>%
+  summarise(total_choices = n(),
+            risky_choices = sum(Choice == 2, na.rm = TRUE),
+            percent_risky = (risky_choices / total_choices) * 100,
+            .groups = 'drop')
+
+# Summarize the data for plotting
+summary_gamb_past <- gamb_past %>%
+  group_by(Past, diagnosis_anxiety) %>%
+  summarise(mean_gambling = mean(percent_risky, na.rm = TRUE),
+            sem_gambling = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+            .groups = 'drop') %>%
+  na.omit()
+
+# Create the plot with facet_wrap for "anx" and "no anx" groups
+fig1c <- ggplot(summary_gamb_past, aes(x = Past, y = mean_gambling, color = Past)) +
+  geom_point(position = position_dodge(0.3)) +
+  geom_errorbar(aes(ymin = mean_gambling - sem_gambling, ymax = mean_gambling + sem_gambling),
+                position = position_dodge(0.3), width = 0.1) +
+  geom_hline(yintercept = 50, linetype = "dotted", color = "black") +
+  scale_color_manual(values = c("Positive" = "#FFD700", "Negative" = "#FF6347")) +
+  labs(
+    title = paste0("% Gambling based on Past (Gain Domain) (N = ", sample_size, ")"),
+    x = "Past",
+    y = "% Risky Choices"
+  ) +
+  ylim(40, 70) +
+  theme_minimal() +
+  poster_theme + 
+  facet_wrap(~ diagnosis_anxiety, labeller = labeller(diagnosis_anxiety = c("anx" = "Anxiety", "no anx" = "No Anxiety")))
+
+# Display the plot
+print(fig1c)
+
+
+```
+
+# Happiness Plots
+
+### Happiness with Future (in Loss Domain)
+
+```{r Happiness with Future (Loss Domain)}
+sample_size = length(unique(happyData1$userKey))
+
+happy_future <- happyData1 %>%
+  mutate(Future = case_when(NextIsland == 2 ~ "Positive",
+                            NextIsland == 1 ~ "Negative")) %>% 
+  filter(Trial=="Loss") %>% # selecting only gain domain
+  group_by(userKey,Future) %>%
+  summarise(happiness = mean(zHappy, na.rm=TRUE),
+                        .groups = 'drop') %>%
+  na.omit()
+
+
+summary_happy_future <- happy_future %>%
+  group_by(Future) %>%
+  summarise(mean_happiness = mean(happiness),
+            sem_happiness = sd(happiness)/sqrt(n())) %>%
+  na.omit()
+
+fig2a <- ggplot(summary_happy_future, aes(x=Future, y=mean_happiness, color=Future)) +
+    geom_point(position = position_dodge(0.3), width = 0.3) +
+    geom_errorbar(aes(ymin = mean_happiness - sem_happiness, ymax = mean_happiness + sem_happiness),
+                  position = position_dodge(0.3), width = 0.1) + 
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  
+    scale_color_manual(values = c("Positive" = "#FFD700", "Negative" = "#FF6347")) +
+    labs(
+      title = paste0("zHappy based on Future (Loss Domain) (N=", sample_size, ")"),
+      x = "Future",
+      y = "z-scored Happiness"
+    ) +
+    ylim(-0.3,0.3) + 
+    theme_minimal() +
+    poster_theme 
+
+print(fig2a)
+
+# summary: decreased happiness when future is positive in loss domain
+```
+
+```{r Future and Past Interaction in Happiness in Gain Domain}
+sample_size = length(unique(happyData1_past$userKey))
+
+happy_future_past <- happyData1_past %>%
+  mutate(Future = case_when(NextIsland == 2 ~ "Positive",
+                            NextIsland == 1 ~ "Negative"),
+         Past = case_when(PastIsland == 2 ~ "Positive",
+                          PastIsland == 1 ~ "Negative")) %>% 
+  filter(Trial=="Gain") %>% # selecting only gain domain
+  group_by(userKey,Future, Past) %>%
+  summarise(happiness = mean(zHappy, na.rm=TRUE),
+                        .groups = 'drop') %>%
+  na.omit()
+
+
+summary_happy_future_past <- happy_future_past %>%
+  group_by(Future, Past) %>%
+  summarise(mean_happiness = mean(happiness),
+            sem_happiness = sd(happiness)/sqrt(n())) %>%
+  na.omit()
+
+fig2b <- ggplot(summary_happy_future_past, aes(x=Future, y=mean_happiness, color=Past)) +
+    geom_point(position = position_dodge(0.3), width = 0.3) +
+    geom_line(position = position_dodge(0.3), aes(group = Past)) +  # Add lines connecting points within groups
+    geom_errorbar(aes(ymin = mean_happiness - sem_happiness, ymax = mean_happiness + sem_happiness),
+                  position = position_dodge(0.3), width = 0.1) + 
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  
+    scale_color_manual(values = c("Positive" = "#FFD700", "Negative" = "#FF6347")) +
+    labs(
+      title = paste0("zHappy based on Future (Gain Domain) (N=", sample_size, ")"),
+      x = "Future",
+      y = "z-scored Happiness"
+    ) +
+    ylim(-0.5,0.5) + 
+    theme_minimal() +
+    poster_theme 
+
+print(fig2b)
+
+# summary: increased gambling when the future is positive vs negative in gain domain. 
+```
+
+### With Anxiety Diagnoses
+
+```{r Happiness with Future (Loss Domain) and Anxiety}
+sample_size = length(unique(happyData1_diag$userKey))
+
+happy_future <- happyData1_diag %>%
+  mutate(Future = case_when(NextIsland == 2 ~ "Positive",
+                            NextIsland == 1 ~ "Negative")) %>% 
+  filter(Trial=="Loss") %>% # selecting only gain domain
+  group_by(userKey,Future,diagnosis_anxiety) %>%
+  summarise(happiness = mean(zHappy, na.rm=TRUE),
+                        .groups = 'drop') %>%
+  na.omit()
+
+
+summary_happy_future <- happy_future %>%
+  group_by(Future, diagnosis_anxiety) %>%
+  summarise(mean_happiness = mean(happiness),
+            sem_happiness = sd(happiness)/sqrt(n())) %>%
+  na.omit()
+
+fig2c <- ggplot(summary_happy_future, aes(x=Future, y=mean_happiness, color=Future)) +
+    geom_point(position = position_dodge(0.3), width = 0.3) +
+    geom_errorbar(aes(ymin = mean_happiness - sem_happiness, ymax = mean_happiness + sem_happiness),
+                  position = position_dodge(0.3), width = 0.1) + 
+    geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  
+    scale_color_manual(values = c("Positive" = "#FFD700", "Negative" = "#FF6347")) +
+    labs(
+      title = paste0("zHappy based on Future (Loss Domain) (N=", sample_size, ")"),
+      x = "Future",
+      y = "z-scored Happiness"
+    ) +
+    ylim(-0.3,0.3) + 
+    theme_minimal() +
+    poster_theme +
+facet_wrap(~ diagnosis_anxiety, labeller = labeller(diagnosis_anxiety = c("anx" = "Anxiety", "no anx" = "No Anxiety")))
+
+print(fig2c)
+
+# summary: decreased happiness when future is positive in loss domain
+```

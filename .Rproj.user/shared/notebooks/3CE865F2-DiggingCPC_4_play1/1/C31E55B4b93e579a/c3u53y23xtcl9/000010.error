@@ -1,0 +1,1 @@
+{"frames":[],"message":"Error: unexpected symbol in:\n\"    mean_zhappy = mean(zHappy,na.rm=TRUE)\n    sem_zhappy\"\n"}

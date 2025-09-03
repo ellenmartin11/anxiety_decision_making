@@ -1,0 +1,1296 @@
+---
+title: "CPC Poster Code"
+author: "Ellen Martin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# CPC Poster Code
+## Preparing Files and Data
+```{r Libraries}
+library(readr)
+library(NatParksPalettes)
+library(ggplot2)
+library(Hmisc) #for computing correlation stuff
+library(knitr) 
+library(tidyverse, warn.conflict=F)
+library(corrplot)
+library(dplyr)
+library(MASS)
+library(sandwich)
+library(lmtest)
+library(broom)
+library(dplyr)
+library(gt)
+library(lme4)
+library(dunn.test)
+
+source("poster_theme.R") #for figure themes
+source("functions/process_initquiz.R")
+source("functions/process_digging_long.R")
+source("functions/process_params.R")
+source("functions/softmax.R")
+
+
+```
+
+```{r Data Paths}
+data_path <- "C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\data\\happyData\\"
+
+# plays one and two for people with at least two plays
+onetwo_long_file <- paste0(data_path,"THP_uk_DiggingHappy2_n2445.csv")
+
+# z-scored (contains non-backfilled z-scored happiness and trial information)
+onetwo_z_long_file <- paste0(data_path,"THP_uk_DiggingHappy2_z_n2306.csv")
+
+
+# parameters and model fits data
+happy_file_multi <- paste0(data_path, "modelBased\\happy_params4_onetwo_n2243.csv")
+# z-scored parameters and model fits data
+zhappy_file_multi <- paste0(data_path, "modelBased\\happy_params4_onetwo_z_n2243.csv")
+
+
+# survey data
+survey_file <- paste0("C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv")
+
+# initial quiz data
+initquiz_file <- paste0(data_path, "THP_uk_initquiz.csv")
+
+# non-backfilled happiness data
+rsd_data <- paste0(data_path, "THP_rsd.csv")
+
+
+```
+
+```{r Processing Long Form Raw and z-scored Happiness}
+# long dataset
+T_digging_long <- process_digging_long(onetwo_long_file)
+length(unique(T_digging_long$userKey)) #N=2241
+
+rsd_data <- read.csv(rsd_data)
+T_digging_long <- merge(T_digging_long,rsd_data,by=c("userKey","TrialNumber","PlayNo"))
+
+T_digging_long <- T_digging_long %>%
+  dplyr::select(userKey, TrialNumber, PlayNo, HappyRating, HappyPred)
+
+# happiness model parameters
+T_digging_long <- process_params(T_digging_long,happy_file_multi)
+length(unique(T_digging_long$userKey)) 
+head(T_digging_long) #2241
+
+# z-scored happiness model parameters
+T_digging_long <- process_params_z(T_digging_long,zhappy_file_multi)
+length(unique(T_digging_long$userKey)) #1973
+head(T_digging_long)
+
+# z-scored long dataset
+T_digging_long_z <- process_digging_long_z(onetwo_z_long_file)
+length(unique(T_digging_long_z$userKey)) #N=2241
+
+
+happyData12 <- merge(T_digging_long, T_digging_long_z, by=c("userKey","TrialNumber","PlayNo"))
+head(happyData12)
+```
+
+
+```{r Cleaning and Merging Initial Quiz, Survey and Parameter Data }
+# initial quiz data
+T_initquiz <- process_initquiz(initquiz_file)
+length(unique(T_initquiz$userKey))
+
+happyData12 <- merge(happyData12, T_initquiz, by="userKey")
+
+
+# survey data
+happyData12 <- process_survey_data(happyData12,survey_file)
+
+happyData12 <- happyData12 %>%
+  arrange(userKey, PlayNo, TrialNumber)
+
+# backfilling Happy_filled
+happyData12 <- happyData12 %>%
+  # Backfill NaNs in zHappyRating and store in zHappy column
+  mutate(Happy_filled = HappyRating*100) %>%
+  fill(Happy_filled, .direction = "up")
+
+happyData12 <- happyData12 %>%
+  mutate(HappyPred_filled = HappyPred) %>%
+    fill(HappyPred_filled, .direction = "up")
+
+# backfill z-scored
+happyData12 <- happyData12 %>%
+  mutate(zHappy_filled = zHappy) %>%
+  fill(zHappy_filled, .direction = "up")
+
+happyData12 <- happyData12 %>%
+  # Backfill NaNs in zHappyRating and store in zHappy column
+  mutate(zHappyPred_filled = zHappyPred) %>%
+  fill(zHappyPred_filled, .direction = "up")
+
+head(happyData12)
+
+# Calculate variance and filter out users with zero variance
+  
+happyData12 <- happyData12 %>%
+  group_by(userKey) %>%
+  summarise(Variance = var(Happy_filled, na.rm = TRUE)) %>%
+  filter(Variance != 0) %>%
+  left_join(happyData12, by = "userKey")
+  
+  # Filtering out users who either always chose the risky option, or always chose the safe option
+  
+happyData12 <- happyData12 %>%
+  group_by(userKey) %>%
+  filter(sum(Choice == 2, na.rm = TRUE) > 0 & sum(Choice == 1, na.rm = TRUE) > 0) %>%
+  ungroup()
+  
+length(unique(happyData12$userKey)) #1973
+  
+```
+
+
+## Summary of Happiness Data, GAD and PHQ
+```{r GAD, PHQ and Distribution Plots}
+
+
+# returns PHQ-GAD correlation and distribution of raw happiness ratings (based on play)
+# play 1 and play 2 plots will be the same for now, since it's the same set of participants
+play1_plot <- calc_rGADPHQ(happyData12,1)
+
+play1_plot$plot #GAD-PHQ Correlation
+play1_plot$dist_plot #happiness distribution
+play1_plot$plot2 #mean against SD Happiness
+
+play2_plot <- calc_rGADPHQ(happyData12,2)
+play2_plot$dist_plot
+play2_plot$plot2
+
+median(happyData12$phq8_total)
+median(happyData12$gad7_total,na.rm=TRUE)
+
+gender_count <- happyData12 %>%
+  group_by(userKey) %>%
+  summarise(Gender = first(gender_group)) %>%
+  ungroup() %>%
+  summarise(
+    num_males = sum(Gender == "Male", na.rm = TRUE),
+    num_females = sum(Gender == "Female", na.rm = TRUE)
+  )
+
+# Print the result
+print(gender_count)
+
+
+age <- happyData12 %>%
+  group_by(userKey) %>%
+  summarize(age = first(age_bin)) %>%
+  mutate(age = factor(age, levels = c("Below 25", "25-34", "35-44", "45-54", "55-64", "65+")))
+
+ggplot(age,aes(x=age)) + 
+  geom_histogram(stat="count",fill="lightblue",color="black") + 
+  theme_minimal() + 
+  ggtitle("Age Distribution (N=1465)")
+
+risky_data <- happyData12 %>%
+    group_by(userKey, Trial) %>%
+    summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop')
+
+
+summary_data <- risky_data %>%
+    group_by(Trial) %>%
+    summarise(mean_percent_risky = mean(percent_risky, na.rm = TRUE),
+              se_percent_risky = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  ggplot(summary_data, aes(x = Trial, y = mean_percent_risky, color = Trial)) +
+    geom_point(position = position_dodge(0.8), size = 3) +
+    geom_errorbar(aes(ymin = mean_percent_risky - se_percent_risky, ymax = mean_percent_risky + se_percent_risky),
+                  width = 0.2) +
+    labs(
+      title = "Mean % Risky Choices in Gain vs Loss Trials",
+      x = "Trial Type",
+      y = "% Risky Choices"
+    ) +
+    theme_minimal() +
+    ylim(40, 60) +  
+    poster_theme + 
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral"))
+```
+- the percentage of risky choices is generally higher, (in both gain and loss domain)
+
+```{r}
+# play 1 only
+risky_data <- happyData12 %>%
+  filter(PlayNo == 2) %>%
+    group_by(userKey, Trial) %>%
+    summarise(total_choices = n(),
+              risky_choices = sum(Choice == 2, na.rm = TRUE),
+              percent_risky = (risky_choices / total_choices) * 100,
+              .groups = 'drop')
+
+summary_data <- risky_data %>%
+    group_by(Trial) %>%
+    summarise(mean_percent_risky = mean(percent_risky, na.rm = TRUE),
+              se_percent_risky = sd(percent_risky, na.rm = TRUE) / sqrt(n()),
+              .groups = 'drop')
+  
+  ggplot(summary_data, aes(x = Trial, y = mean_percent_risky, color = Trial)) +
+    geom_point(position = position_dodge(0.8), size = 3) +
+    geom_errorbar(aes(ymin = mean_percent_risky - se_percent_risky, ymax = mean_percent_risky + se_percent_risky),
+                  width = 0.2) +
+    labs(
+      title = "Mean % Risky Choices in Gain vs Loss Trials",
+      x = "Trial Type",
+      y = "% Risky Choices"
+    ) +
+    theme_minimal() +
+    ylim(40, 60) +  
+    poster_theme + 
+    scale_color_manual(values = c("Gain" = "gold", "Loss" = "coral"))
+
+```
+# gambling higher in loss domain? 
+
+## plays 2 and 3
+
+
+## Correlations Between GAD/PHQ and Gambling Behaviour
+
+
+```{r Correlation Between GAD, PHQ and Gambling Behaviour}
+
+result_gain_one <- summarize_and_correlate(happyData12, 1, "Gain")
+result_loss_one <- summarize_and_correlate(happyData12, 1, "Loss")
+
+result_gain_two <- summarize_and_correlate(happyData12, 2, "Gain")
+result_loss_two <- summarize_and_correlate(happyData12, 2, "Loss")
+
+combined_results <- bind_rows(result_gain_one, result_loss_one, result_gain_two, result_loss_two)
+
+combined_results %>%
+  gt() %>%
+  tab_header(
+    title = "Correlation Between GAD/PHQ and % Risky Choices"
+  ) %>%
+  fmt_number(
+    columns = vars(rho, p_value),
+    decimals = 3
+  )
+
+
+```
+
+
+- no correlation between GAD, PHQ and % of Risky Choices
+- GAD correlated with increased % of Risky Choices in Loss domain (play 1 only) (N=1958)
+
+
+### Gender and Age Differences in Gambling Behaviour 
+
+```{r}
+## insert here code to calculate % risky choices in gain and loss trials split by age (do binned ages, and one line for gain gambling and another line for loss gambling)
+
+## also do another plot showing % risky choices in gain trials (two different lines for genders), and in loss trials (same)
+```
+
+
+## Correlation Between GAD/PHQ and SD Happiness
+```{r Correlation Between GAD/PHQ and SD Happiness}
+
+result_gain_one_sd <- summarize_and_correlate_happiness(happyData12, 1, "Gain")
+result_loss_one_sd <- summarize_and_correlate_happiness(happyData12, 1, "Loss")
+result_gain_two_sd <- summarize_and_correlate_happiness(happyData12, 2, "Gain")
+result_loss_two_sd <- summarize_and_correlate_happiness(happyData12, 2, "Loss")
+result_overall_one_sd <- summarize_and_correlate_happiness(happyData12,1, overall=TRUE)
+result_overall_two_sd <- summarize_and_correlate_happiness(happyData12,2,overall=TRUE)
+
+
+
+combined_results <- bind_rows(result_gain_one_sd, result_loss_one_sd, result_gain_two_sd, result_loss_two_sd,result_overall_one_sd,result_overall_two_sd)
+
+combined_results %>%
+  gt() %>%
+  tab_header(
+    title = "Correlation Between GAD/PHQ and SD Happiness"
+  ) %>%
+  fmt_number(
+    columns = vars(rho, p_value),
+    decimals = 3
+  )
+
+
+# z-scored happiness and GAD/PHQ no association
+result_gain_one_zHappy <- summarize_and_correlate_z_happiness(happyData12, 1, "Gain")
+result_loss_one_zHappy<- summarize_and_correlate_z_happiness(happyData12, 1, "Loss")
+result_gain_two_zHappy <- summarize_and_correlate_z_happiness(happyData12, 2, "Gain")
+result_loss_two_zHappy<- summarize_and_correlate_z_happiness(happyData12, 2, "Loss")
+result_overall_one_zHappy <- summarize_and_correlate_z_happiness(happyData12,1, overall=TRUE)
+result_overall_two_zHappy <- summarize_and_correlate_z_happiness(happyData12,2,overall=TRUE)
+
+combined_results <- bind_rows(result_gain_one_zHappy, result_loss_one_zHappy, result_gain_two_zHappy, result_loss_two_zHappy,result_overall_one_zHappy,result_overall_two_zHappy)
+
+combined_results %>%
+  gt() %>%
+  tab_header(
+    title = "Correlation Between GAD/PHQ and z-scored Happiness"
+  ) %>%
+  fmt_number(
+    columns = vars(rho, p_value),
+    decimals = 3
+  )
+
+```
+ - GAD associated with Rel SD Happiness in Loss domain play 1 
+ 
+
+### Plots of GAD/PHQ Against SD Happines
+
+```{r SD and Symptom Score Plots Raw}
+
+# EDIT THIS CODE SO IT IS MORE SEPARATE INTO OVERALL AND INTO LOSS TRIALS, AND FIGURE OUT WHY THE PLOT IS MESSING UP
+play1_data <- summarize_play_data(happyData12, 1)
+play2_data <- summarize_play_data(happyData12,2)
+
+plot_gad_sd(play1_data, play2_data)
+plot_gad_rsd(play1_data, play2_data)
+plot_phq_sd(play1_data, play2_data)
+plot_phq_rsd(play1_data, play2_data)
+
+
+# very different in play 1 and play 2 (dependent on GAD/ANX)
+
+```
+
+
+```{r SD and Symptom Score Plots z-score}
+## CLEAN UP THIS CODE FOR z-SCORE AND RAW
+
+# EDIT THIS CODE SO IT IS MORE SEPARATE INTO OVERALL AND INTO LOSS TRIALS, AND FIGURE OUT WHY THE PLOT IS MESSING UP
+play1_data <- summarize_play_data_z(happyData12, 1)
+play2_data <- summarize_play_data_z(happyData12,2)
+
+
+
+plot_gad_zhappy(play1_data, play2_data)
+plot_phq_zhappy(play1_data, play2_data)
+
+# very different in play 1 and play 2 (dependent on GAD/ANX)
+
+```
+
+
+
+
+
+## Robust Linear Models 
+- Predicting GAD from SD Happiness 
+
+```{r Robust Linear Regression}
+
+play1 <- summarize_play_data(happyData12,1) %>% mutate(PlayNo = 1)
+play2 <- summarize_play_data(happyData12,2) %>% mutate(PlayNo = 2)
+
+# predicting GAD from SD Happiness in Play 1
+rlm <- rlm(GAD_score~sd_RawHappy,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+# predicting GAD from rsd Happiness in Play 1
+rlm <- rlm(GAD_score~rsd_RawHappy,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+
+# predicting PHQ from SD Happiness
+rlm_PHQ <- rlm(PHQ_score~sd_RawHappy,data=play1)
+robust_se <- vcovHC(rlm_PHQ, type = "HC0")
+coeftest(rlm_PHQ, robust_se) 
+
+# predicting PHQ from RSD
+rlm_PHQ <- rlm(PHQ_score~rsd_RawHappy,data=play1)
+robust_se <- vcovHC(rlm_PHQ, type = "HC0")
+coeftest(rlm_PHQ, robust_se) 
+
+# predicting GAD from SD Happiness + Mean Happiness in Play 1
+rlm1 <- rlm(GAD_score~mean_RawHappy+sd_RawHappy,data=play1)
+robust_se <- vcovHC(rlm1, type = "HC0")
+coeftest(rlm1, robust_se) 
+
+# predicting GAD from RSD Happiness + mean Happiness in Play 1
+rlm1 <- rlm(GAD_score~mean_RawHappy+rsd_RawHappy,data=play1)
+robust_se <- vcovHC(rlm1, type = "HC0")
+coeftest(rlm1, robust_se) 
+
+# predicting PHQ from SD Happiness + mean Happiness in Play 1
+rlm1_PHQ <- rlm(PHQ_score~mean_RawHappy+sd_RawHappy,data=play1)
+robust_se <- vcovHC(rlm1_PHQ, type = "HC0")
+coeftest(rlm1_PHQ, robust_se) 
+
+
+# predicting PHQ from RSD Happiness + mean Happiness in Play 1
+rlm2_PHQ <- rlm(PHQ_score~mean_RawHappy+rsd_RawHappy,data=play1)
+robust_se <- vcovHC(rlm2_PHQ, type = "HC0")
+coeftest(rlm2_PHQ, robust_se) 
+
+```
+
+## Robust Linear Regression - Predicting GAD from SD Happiness in Loss Domains
+
+```{r Robust Linear Regression - Loss Domain SD Happy}
+# predicting GAD from SD Happiness in Play 1
+rlm <- rlm(GAD_score~sd_RawHappy_loss,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(GAD_score~rsd_RawHappy_loss,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~sd_RawHappy_loss,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~rsd_RawHappy_loss,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+
+# predicting GAD from SD Happiness in Play 2
+rlm <- rlm(GAD_score~sd_RawHappy_loss,data=play2)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(GAD_score~rsd_RawHappy_loss,data=play2)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~sd_RawHappy_loss,data=play2)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~rsd_RawHappy_loss,data=play2)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+
+# taking into account mean happiness overall
+rlm <- rlm(GAD_score~sd_RawHappy_loss+mean_RawHappy,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(GAD_score~rsd_RawHappy_loss+mean_RawHappy,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~sd_RawHappy_loss+mean_RawHappy,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~rsd_RawHappy_loss+mean_RawHappy,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+# play2 
+# taking into account mean happiness overall
+rlm <- rlm(GAD_score~sd_RawHappy_loss+mean_RawHappy,data=play2)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(GAD_score~rsd_RawHappy_loss+mean_RawHappy,data=play2)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~sd_RawHappy_loss+mean_RawHappy,data=play2)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~rsd_RawHappy_loss+mean_RawHappy,data=play2)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+```
+
+## Taking into account age and education
+
+```{r Age and Education}
+play1 <- merge(play1, T_initquiz, by="userKey")
+
+rlm <- rlm(GAD_score~sd_RawHappy_loss+mean_RawHappy+age+education,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(GAD_score~rsd_RawHappy_loss+mean_RawHappy+age+education,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~sd_RawHappy_loss+mean_RawHappy+age+education,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+rlm <- rlm(PHQ_score~rsd_RawHappy_loss+mean_RawHappy+age+education,data=play1)
+robust_se <- vcovHC(rlm, type = "HC0")
+coeftest(rlm, robust_se) 
+
+# sd happiness not predictive of GAD or PHQ when accounting for mean happiness + age + education in Play 1
+```
+
+## Parameters 
+- EV and RPE plot
+
+```{r Happiness Model Parameters}
+play1_stats <- happyData12 %>%
+  filter(PlayNo == 1) %>%
+  group_by(userKey) %>%
+  summarize(sd_RawHappy_play1 = sd(Happy_filled, na.rm = TRUE),
+            mean_zHappy_play1 = mean(zHappy_filled, na.rm=TRUE),
+            mean_RawHappy_play1 = mean(Happy_filled, na.rm = TRUE),
+            rsd_RawHappy_play1 = relSD_tc(HappyRating * 100, 0, 100)
+            )
+
+play2_stats <- happyData12 %>%
+  filter(PlayNo == 2) %>%
+  group_by(userKey) %>%
+  summarize(sd_RawHappy_play2 = sd(Happy_filled, na.rm = TRUE),
+            mean_zHappy_play2 = mean(zHappy_filled, na.rm=TRUE),
+            mean_RawHappy_play2 = mean(Happy_filled, na.rm = TRUE),
+            rsd_RawHappy_play2 = relSD_tc(HappyRating * 100, 0, 100)
+            )
+
+combined_stats <- happyData12 %>%
+  group_by(userKey) %>%
+  summarize(GAD = first(gad7_total),
+            PHQ = first(phq8_total),
+            sse_multi = first(sse_multi),
+            rpe_chosen_multi = first(rpe_chosen_multi),
+            abs_rpe = abs(rpe_chosen_multi),
+            r2_multi = first(r2_multi),
+            aic_multi = first(aic_multi),
+            bic_multi = first(bic_multi),
+            tau_multi = first(tau_multi),
+            rpe_chosen_multi_z = first(rpe_chosen_multi_z),
+            abs_rpe_z = abs(rpe_chosen_multi_z),
+            r2_multi_z = first(r2_multi_z),
+            aic_multi_z = first(aic_multi_z),
+            bic_multi_z = first(bic_multi_z),
+            tau_multi_z = first(tau_multi_z),
+            #age=first(age),
+            #gender = first(gender_group),
+           #education = first(education),
+            const1_multi = first(const1_multi),
+           const1_multi_z = first(const1_multi_z),
+            const1_scaled = (const1_multi / 100),
+           const1_scaled_z = (const1_multi_z / 100),
+            ev_multi = first(ev_chosen_multi),
+            ev_chosen_multi_z = first(ev_chosen_multi_z),
+            abs_ev = abs(ev_multi),
+            abs_ev_z = abs(ev_chosen_multi_z),
+            const2_multi = first(const2_multi),
+            const2_multi_z = first(const2_multi_z),
+            rpe_ev_d = (rpe_chosen_multi - ev_multi),
+           rpe_ev_d_z = (rpe_chosen_multi_z - ev_chosen_multi_z)) %>%
+  mutate(GAD_group = ifelse(GAD >= 6, "GAD 6+", "GAD < 6"),
+         PHQ_group = ifelse(PHQ >= 7, "PHQ 7+", "PHQ < 7")) %>%
+  na.omit()
+
+# Merge the play-specific statistics back into the combined statistics
+final_summary <- combined_stats %>%
+  left_join(play1_stats, by = "userKey") %>%
+  left_join(play2_stats, by = "userKey")
+
+final_summary <- final_summary %>%
+  mutate(sd_RawHappy = (sd_RawHappy_play1+sd_RawHappy_play2)/2,
+         mean_zHappy = (mean_zHappy_play1+mean_zHappy_play2)/2,
+            mean_RawHappy = (mean_RawHappy_play1+mean_RawHappy_play2)/2,
+      rsd_RawHappy = (rsd_RawHappy_play1 + rsd_RawHappy_play2)/2)
+
+final_summary <- final_summary  %>%
+  mutate(
+    GAD_bin = cut(GAD, breaks = c(-Inf, 4, 9, 14, 21), labels = c("0-4", "5-9", "10-14", "15-21")),
+    PHQ_bin = cut(PHQ, breaks = c(-Inf, 4, 9, 14, 24), labels = c("0-4", "5-9", "10-14", "15-24"))
+  )
+
+# plotting
+plot_happiness_model_parameters(happyData12)
+
+plot_happiness_model_parameters_z(happyData12)
+```
+
+
+### Happiness Model Parameters Split by Groups
+
+```{r Parameters Split By Groups}
+plot_summary_stats(final_summary,"GAD_group")
+plot_summary_stats(final_summary,"PHQ_group")
+#plot_summary_stats(final_summary,"gender")
+
+cor.test(final_summary$GAD,final_summary$abs_rpe,method="spearman")
+# GAD associated with increased absolute RPE (rho=0.048, p=0.033)
+cor.test(final_summary$GAD,final_summary$rpe_chosen_multi,method="spearman")
+
+cor.test(final_summary$GAD,final_summary$abs_ev,method="spearman")
+# GAD not sig associated with increased absolute RPE (rho=0.041, p=0.070)
+
+cor.test(final_summary$GAD,final_summary$ev_multi,method="spearman")
+
+cor.test(final_summary$PHQ,final_summary$abs_rpe,method="spearman")
+cor.test(final_summary$PHQ,final_summary$rpe_chosen_multi,method="spearman")
+
+cor.test(final_summary$PHQ,final_summary$abs_ev,method="spearman")
+cor.test(final_summary$PHQ,final_summary$ev_multi,method="spearman")
+
+cor.test(final_summary$abs_rpe,final_summary$sd_RawHappy,method="spearman")
+cor.test(final_summary$rpe_chosen_multi,final_summary$sd_RawHappy,method="spearman")
+
+```
+- RPE is higher among people with higher GAD
+
+```{r Parameters Split By Groups z-scored}
+plot_summary_stats_z(final_summary,"GAD_group")
+plot_summary_stats_z(final_summary,"PHQ_group")
+#plot_summary_stats(final_summary,"gender")
+
+cor.test(final_summary$GAD,final_summary$abs_rpe_z,method="spearman")
+# GAD associated with increased absolute RPE (rho=0.048, p=0.033)
+
+cor.test(final_summary$GAD,final_summary$abs_ev_z,method="spearman")
+# GAD not sig associated with increased absolute RPE (rho=0.041, p=0.070)
+
+
+cor.test(final_summary$PHQ,final_summary$abs_rpe_z,method="spearman")
+cor.test(final_summary$PHQ,final_summary$rpe_chosen_multi_z,method="spearman")
+
+cor.test(final_summary$PHQ,final_summary$abs_ev_z,method="spearman")
+
+cor.test(final_summary$abs_rpe,final_summary$sd_RawHappy,method="spearman")
+cor.test(final_summary$rpe_chosen_multi,final_summary$sd_RawHappy,method="spearman")
+
+# directional
+plot_summary_stats_z_directional(final_summary,"GAD_group")
+
+cor.test(final_summary$GAD,final_summary$rpe_chosen_multi_z,method="spearman")
+cor.test(final_summary$GAD,final_summary$ev_chosen_multi_z,method="spearman")
+
+
+
+plot_summary_stats_z_directional(final_summary,"PHQ_group")
+cor.test(final_summary$PHQ,final_summary$rpe_chosen_multi_z,method="spearman")
+cor.test(final_summary$PHQ,final_summary$ev_chosen_multi_z,method="spearman")
+
+```
+
+### Distribution of Happiness Parameters
+
+```{r}
+variable_names <- c("tau_multi", "ev_multi", "rpe_chosen_multi", "const1_multi","abs_ev","abs_rpe")
+
+for (var_name in variable_names) {
+  p <- ggplot(final_summary, aes_string(x = var_name)) +
+    geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+    labs(title = paste("Histogram of", var_name), x = var_name, y = "Frequency") +
+    theme_minimal()
+  print(p)
+}
+```
+
+## Mood After Win-Lose (Correlated with Depression/Anxiety)
+
+
+
+```{r Gain Domain, Risky Choice, Win vs Lose Happiness}
+play1 <- happyData12 %>% filter(PlayNo == 1)
+play2 <- happyData12 %>% filter(PlayNo == 2)
+
+
+result <- winvloss_happy(happyData12, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test 
+
+#z-scored
+result <- winvloss_z_happy(happyData12, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test 
+
+
+result <- winvloss_happy_GAD(happyData12, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus
+result$wilcox_test_gad_less6
+
+#z-scored GAD 
+
+result <- winvloss_z_happy_GAD(happyData12, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus
+result$wilcox_test_gad_less6 
+result$mw_test_win
+result$mw_test_loss
+
+
+# play 1
+result <- winvloss_happy(play1, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test 
+
+# z-scored
+result <- winvloss_z_happy(play1, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test 
+
+result <- winvloss_happy_GAD(play1, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus
+result$wilcox_test_gad_less6 
+
+# play 2
+result <- winvloss_happy(play2, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test 
+
+
+result <- winvloss_happy_GAD(play2, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus
+result$wilcox_test_gad_less6 
+```
+- there is slightly elevated happiness for LOSING risky choices in Gain Domains versus WINNING risky choices in Gain Domains - and this is not what the model predicts (model predicts higher mean happiness after winning Risk)
+- especially inaccurate when looking at play 1 and 2 separately (for win happiness)
+
+### Residuals
+```{r}
+#z-scored happiness residuals
+result <- winvloss_z_happy_resid(happyData12, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test 
+
+#with GAD
+result <- winvloss_z_happy_resid_GAD(happyData12, "Gain", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus
+result$wilcox_test_gad_less6
+```
+
+
+
+```{r}
+t <- happyData12 %>%
+  arrange(userKey, PlayNo, TrialNumber) %>%
+  group_by(userKey, PlayNo) %>%
+  dplyr::select(userKey, TrialNumber, PlayNo, HappyRating, Outcome, Trial, RiskySide, Choice, SafeValue, RiskyValue) %>%
+  # backfill
+  group_by(userKey, PlayNo) %>%
+  mutate(happiness_fill = HappyRating) %>%
+  fill(happiness_fill, .direction = "up") %>%
+  mutate(happiness_z = as.numeric(scale(happiness_fill))) %>%
+  mutate(new_choice = case_when(
+    Choice == 2 ~ "risk",
+    Choice == 1 ~ "safe",
+    TRUE ~ NA_character_)
+  ) %>%
+  # win/loss
+  mutate(outcome_type = case_when(
+    Trial == "Gain" & new_choice == "risk" & Outcome == RiskyValue ~ "win", 
+    Trial == "Gain" & new_choice == "risk" & Outcome == 0 ~ "lose", 
+    Trial == "Loss" & new_choice == "risk" & Outcome == 0 ~ "win", 
+    Trial == "Loss" & new_choice == "risk" & Outcome == RiskyValue ~ "lose", 
+    Trial == "Gain" & new_choice == "safe" & Outcome == SafeValue ~ "win", 
+    Trial == "Gain" & new_choice == "safe" & Outcome == 0 ~ "lose", 
+    Trial == "Loss" & new_choice == "safe" & Outcome == 0 ~ "win", 
+    Trial == "Loss" & new_choice == "safe" & Outcome == SafeValue ~ "lose" 
+  ))
+
+
+t %>%
+  group_by(userKey, PlayNo, outcome_type) %>%
+  summarise(sub_mean = mean(happiness_fill)) %>%
+  # delta
+  pivot_wider(names_from = "outcome_type", values_from = "sub_mean") %>%
+  mutate(diff = win - lose) %>%
+  ggplot(., aes(x = diff)) + 
+    geom_histogram() +
+  geom_vline(aes(xintercept = 0))
+
+
+t %>%
+  group_by(userKey, PlayNo, outcome_type) %>%
+  summarise(sub_mean = mean(happiness_fill)) %>%
+  # delta
+  pivot_wider(names_from = "outcome_type", values_from = "sub_mean") %>%
+  mutate(diff = win - lose) %>%
+  ungroup() %>%
+  summarise(mean = mean(diff, na.rm = T), sd = sd(diff, na.rm = T))
+
+# debugging/sanity check
+# count number of people where Choice == 1 && Outcome > 20 - should return 0
+
+row_count <- t %>%
+  filter(Choice == 1, Outcome > 20) %>% # if participants choose 1 - the outcome cannot be greater than 20 - so this should return 0
+  nrow()
+print(row_count)
+
+row_count <- t %>%
+  filter(Choice == 2, Outcome == 20) %>% # if participants choose 2 - the outcome cannot be 20 - this should return 0 
+  nrow()
+print(row_count) 
+```
+
+```{r Loss Domain, Risky Choice, Win vs Lose Happiness}
+result <- winvloss_happy(happyData12, "Loss", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test #signiifcantly happier after winning a risky choice in loss domain
+
+#z-scored
+result <- winvloss_z_happy(happyData12, "Loss", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test #signiifcantly happier after winning a risky choice in loss domain
+
+result <- winvloss_happy_GAD(happyData12, "Loss", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus #again, model is doing well in loss domain
+result$wilcox_test_gad_less6
+
+#z-scored
+result <- winvloss_z_happy_GAD(happyData12, "Loss", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus #again, model is doing well in loss domain
+result$wilcox_test_gad_less6
+result$mw_test_win
+result$mw_test_loss
+
+# play 1
+result <- winvloss_happy(play1, "Loss", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test #signiifcantly happier after winning a risky choice in loss domain
+
+result <- winvloss_happy_GAD(play1, "Loss", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus #again, model is doing well in loss domain
+result$wilcox_test_gad_less6
+
+# play 2
+result <- winvloss_happy(play2, "Loss", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test #signiifcantly happier after winning a risky choice in loss domain
+
+result <- winvloss_happy_GAD(play2, "Loss", "Risky")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus #again, model is doing well in loss domain
+result$wilcox_test_gad_less6
+```
+- model does well predicting happiness in loss domain, when winning an risky choice vs loing a risky choice
+
+```{r Gain Domain, Safe Choice, Win vs Lose Happiness}
+result <- winvloss_happy(happyData12, "Gain", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test #again, model is predicting that people shoud be happier after winning, but the data is not showing that
+
+#z-scored
+result <- winvloss_z_happy(happyData12, "Gain", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test 
+
+result <- winvloss_happy_GAD(happyData12, "Gain", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus 
+result$wilcox_test_gad_less6
+
+#z-scored
+result <- winvloss_z_happy_GAD(happyData12, "Gain", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus 
+result$wilcox_test_gad_less6
+result$mw_test_win
+result$mw_test_loss
+
+# looks like model is off for wins, but actually more accurate for the high anxiety people
+
+# play 1
+result <- winvloss_happy(play1, "Gain", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test #again, model is predicting that people shoud be happier after winning, but the data is not showing that
+
+result <- winvloss_happy_GAD(play1, "Gain", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus 
+result$wilcox_test_gad_less6
+
+# play 2
+result <- winvloss_happy(play2, "Gain", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test #again, model is predicting that people shoud be happier after winning, but the data is not showing that
+
+result <- winvloss_happy_GAD(play2, "Gain", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus 
+result$wilcox_test_gad_less6
+```
+```{r Loss Domain, Safe Choice, Win vs Lose Happiness}
+result <- winvloss_happy(happyData12, "Loss", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test #significantly happier after winning in loss domains 
+
+# z-scored
+
+result <- winvloss_z_happy(happyData12, "Loss", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test 
+
+
+result <- winvloss_happy_GAD(happyData12, "Loss", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus #both groups significantly happier after winning a risky choice in loss domain
+result$wilcox_test_gad_less6
+
+
+# z-scored
+result <- winvloss_z_happy_GAD(happyData12, "Loss", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus #both groups significantly happier after winning a risky choice in loss domain
+result$wilcox_test_gad_less6
+result$mw_test_win
+result$mw_test_loss
+
+# play 1
+result <- winvloss_happy(play1, "Loss", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test #significantly happier after winning in loss domains 
+
+result <- winvloss_happy_GAD(play1, "Loss", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus #both groups significantly happier after winning a risky choice in loss domain
+result$wilcox_test_gad_less6
+
+# play 2
+result <- winvloss_happy(play2, "Loss", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test #significantly happier after winning in loss domains 
+
+result <- winvloss_happy_GAD(play2, "Loss", "Safe")
+result$summary_long
+result$plot
+result$wilcox_test_gad6plus #both groups significantly happier after winning a risky choice in loss domain
+result$wilcox_test_gad_less6
+```
+
+```{r Happiness Risky vs Safe Choice, Overall}
+riskyvsafe_happy(happyData12, "Overall")
+riskyvsafe_happy(happyData12, "Win")
+```
+
+
+
+
+
+## Future Information and Happiness
+
+```{r Next Island infomartion}
+result<-next_island_happy(happyData12)
+result$plot
+result$summary_table
+
+#z-scored
+result<-next_island_z_happy(happyData12)
+result$plot
+result$summary_table
+
+#residuals
+result<-next_island_z_happy_resid(happyData12)
+result$plot
+result$summary_table
+
+
+result<-next_island_happy_GAD(happyData12)
+result$plot
+result$summary_table
+
+#z-scored
+result<-next_island_z_happy_GAD(happyData12)
+result$plot
+result$summary_table
+result$mw_test_gold
+result$mw_test_red
+
+
+# people with higher anxiety are less happy than people with low anxiety - when the next island is a gain trial
+
+#z-scored Resdiauls
+result<-next_island_z_happy_resid_GAD(happyData12)
+result$plot
+result$summary_table
+result$mw_test_gold
+result$mw_test_red
+
+
+
+
+# people with higher anxiety are less happy when the next island is gain and the last island is gain compared to lower ANX participants
+
+
+```
+```{r}
+result <- next_last_island_happy(happyData12)
+result$plot
+result$summary_table
+
+#z-scored
+result <- next_last_island_z_happy(happyData12)
+result$plot
+result$summary_table
+
+result <- next_last_island_z_happy_resid(happyData12)
+result$plot
+result$summary_table
+
+result <- next_last_island_happy_GAD(happyData12)
+result$plot
+result$summary_table
+
+#z-scored
+result <- next_last_island_z_happy_GAD(happyData12)
+result$plot
+result$summary_table
+
+#residuals
+result <- next_last_island_z_happy_resid_GAD(happyData12)
+result$plot
+result$summary_table
+
+```
+
+```{r}
+# Next, Last and Current Island
+result <- next_last_current_island_happy(happyData12)
+result$plot
+result$summary_table
+
+# z-scored
+result <- next_last_current_island_z_happy(happyData12)
+result$plot
+result$summary_table
+
+#resid
+result <- next_last_current_island_z_happy_resid(happyData12)
+result$plot
+result$summary_table
+
+result <- next_last_current_island_happy_GAD(happyData12)
+result$plot
+result$summary_table
+
+#z-scored
+result <- next_last_current_island_z_happy_GAD(happyData12)
+result$plot
+result$summary_table
+
+result <- next_last_current_island_z_happy_resid_GAD(happyData12)
+result$plot
+result$summary_table
+```
+
+## Happiness Based on EV (regardless of choice)
+
+## Happiness Based on Alterate Option
+
+```{r  % Risky Choices based on EV of risky option relative to  safe option}
+
+happyData12 <- happyData12 %>%
+  mutate(SafeEV = ((SafeProb*SafeValue)+((1-SafeProb)*0))/2,
+         RiskyEV = ((RiskyProb*RiskyValue)+((1-RiskyProb)*0))/2)
+
+happyData12 <- happyData12 %>%
+  mutate(RelEV = ifelse(abs(RiskyEV) >= 2 * abs(SafeEV), "High",
+                 ifelse(abs(RiskyEV) > abs(SafeEV) & abs(RiskyEV) < 2 * abs(SafeEV), "Medium",
+                 ifelse(abs(RiskyEV) == abs(SafeEV), "Equal", "Low"))))
+
+# play 1
+play1 <- happyData12 %>% filter(PlayNo == 1)
+play2 <- happyData12 %>% filter(PlayNo == 2)
+
+
+result <- risky_choice_EVs(happyData12)
+print(result$plot)
+result$kruskal_test_gain
+result$kruskal_test_loss
+
+relEV_counts <- happyData12 %>%
+  group_by(RelEV) %>%
+  summarise(count = n())
+
+# Print the counts
+print(relEV_counts)
+
+# play1
+result <- risky_choice_EVs(play1)
+print(result$plot)
+result$kruskal_test_gain
+result$kruskal_test_loss
+```
+
+
+```{r Risky Choices based on Prob}
+#result <- risky_choice_probs(happyData12)
+#print(result$plot)
+#result$kruskal_test_gain
+#result$kruskal_test_loss
+
+result<- risky_choice_probs(play1)
+print(result$plot)
+result$kruskal_test_gain
+result$kruskal_test_loss
+```
+```{r Risky Choices based on Magnitude}
+result <- risky_choice_magnitude(play1)
+print(result$plot)
+result$kruskal_test_gain
+result$kruskal_test_loss
+```
+
+```{r Risky Choices based on EV}
+result <- risky_choice_EVs_raw(happyData12)
+print(result$plot)
+result$kruskal_test_gain
+result$kruskal_test_loss
+
+```
+
+
+
+```{r % Risky Choices Split by GAD}
+result <- risky_choice_EVs_GAD(happyData12)
+print(result$plot)
+print(result$kruskal_gain_GAD_less_6) # near significant differences in gain domain for % risk taking across different EVs
+print(result$kruskal_loss_GAD_less_6)
+print(result$kruskal_gain_GAD_6_plus)
+print(result$kruskal_loss_GAD_6_plus)
+```
+
+```{r Mean Happiness (not backfilled) across different EV options}
+
+result <- mean_happiness_by_RelEV(happyData12)
+print(result$plot)
+
+
+result <- mean_happiness_by_RelEV_GAD(happyData12)
+print(result$plot)
+
+# follow-up kruskal test to see if there is a signi
+result<-kruskal_happiness_by_RelEV_GAD(happyData12)
+print(result$kruskal_gain_all) #n.s kruskal in gain domain across all
+print(result$kruskal_loss_all) #significant differences in loss domain
+print(result$kruskal_gain_GAD_less_6)
+print(result$kruskal_loss_GAD_less_6) #in loss domain signficant differences in happiness across EV values among GAD < 6 participants
+print(result$kruskal_gain_GAD_6_plus) 
+print(result$kruskal_loss_GAD_6_plus) 
+print(result$dunn_result_GAD_less_6)
+print(result$dunn_result_GAD_6_plus)
+
+```
+
+```{r z-scored Happiness (not backfilled) across different EV options}
+
+result <- mean_z_happiness_by_RelEV(happyData12)
+print(result$plot)
+
+
+result <- mean_z_happiness_by_RelEV_GAD(happyData12)
+print(result$plot)
+
+#just EV (not relative)
+
+result <- mean_z_happiness_by_EV_GAD(happyData12)
+print(result$plot)
+
+# follow-up kruskal test to see if there is a signi
+result<-kruskal_happiness_by_RelEV_GAD(happyData12)
+print(result$kruskal_gain_all) #n.s kruskal in gain domain across all
+print(result$kruskal_loss_all) #significant differences in loss domain
+print(result$kruskal_gain_GAD_less_6)
+print(result$kruskal_loss_GAD_less_6) #in loss domain signficant differences in happiness across EV values among GAD < 6 participants
+print(result$kruskal_gain_GAD_6_plus) 
+print(result$kruskal_loss_GAD_6_plus) 
+print(result$dunn_result_GAD_less_6)
+print(result$dunn_result_GAD_6_plus)
+
+```
+
+```{r Mean Happiness Across Different Probabilities}
+# risky prob
+result <- mean_happiness_by_RiskyProb_GAD(happyData12)
+print(result$plot)
+print(result$kruskal_tests$kruskal_gain_GAD_6_plus) #n.s.
+print(result$kruskal_tests$kruskal_gain_GAD_less_6) #m.s.
+print(result$kruskal_tests$kruskal_loss_GAD_6_plus) # p=0.0047
+print(result$kruskal_tests$kruskal_loss_GAD_less_6) # p<.0001
+```
+
+```{r z-scored Happiness Across Different Probabilities}
+# risky prob
+result <- mean_z_happiness_by_RiskyProb_GAD(happyData12)
+print(result$plot)
+print(result$kruskal_tests$kruskal_gain_GAD_6_plus) #n.s.
+print(result$kruskal_tests$kruskal_gain_GAD_less_6) #m.s.
+print(result$kruskal_tests$kruskal_loss_GAD_6_plus) # p=0.0047
+print(result$kruskal_tests$kruskal_loss_GAD_less_6) # p<.0001
+```
+- z-scored happiness fluctuates omre among people with higher anxiety symptoms for gain domain increasing probabilities
+- but more stable in loss domain among high anxiety participants
+```{r}
+result <- mean_happiness_by_RelEV_GAD_Outcome(happyData12)
+print(result$plot)
+print(result$kruskal_tests$kruskal_gain_win_GAD_6_plus) #n.s
+print(result$kruskal_tests$kruskal_gain_win_GAD_less_6) #n.s
+print(result$kruskal_tests$kruskal_gain_loss_GAD_6_plus) #n.s
+print(result$kruskal_tests$kruskal_gain_loss_GAD_less_6) #n.s
+print(result$kruskal_tests$kruskal_loss_win_GAD_6_plus) #n.s
+print(result$kruskal_tests$kruskal_loss_win_GAD_less_6) #n.s
+print(result$kruskal_tests$kruskal_loss_loss_GAD_6_plus) #n.s
+print(result$kruskal_tests$kruskal_loss_loss_GAD_less_6) #n.s
+
+# no significant overall differences 
+```
+```{r z-scored happiness by magnitude}
+# risky prob
+result <- mean_z_happiness_by_magnitude_GAD(happyData12)
+print(result$plot)
+print(result$kruskal_tests$kruskal_gain_GAD_6_plus) #n.s.
+print(result$kruskal_tests$kruskal_gain_GAD_less_6) #m.s.
+print(result$kruskal_tests$kruskal_loss_GAD_6_plus) # p=0.0047
+print(result$kruskal_tests$kruskal_loss_GAD_less_6) # p<.0001
+```
+
+

@@ -1,0 +1,37 @@
+"0","sample_size = length(unique(happyData1_diag$userKey))
+
+happy_future <- happyData1_diag %>%
+  mutate(Future = case_when(NextIsland == 2 ~ ""Positive"",
+                            NextIsland == 1 ~ ""Negative"")) %>% 
+  filter(Trial==""Loss"") %>% # selecting only gain domain
+  group_by(userKey,Future,diagnosis_anxiety) %>%
+  summarise(happiness = mean(zHappy, na.rm=TRUE),
+                        .groups = 'drop') %>%
+  na.omit()
+
+
+summary_happy_future <- happy_future %>%
+  group_by(Future, diagnosis_anxiety) %>%
+  summarise(mean_happiness = mean(happiness),
+            sem_happiness = sd(happiness)/sqrt(n())) %>%
+  na.omit()
+"
+"2","`summarise()` has grouped output by 'Future'. You can override using the `.groups` argument."
+"0",""
+"0","fig2c <- ggplot(summary_happy_future, aes(x=Future, y=mean_happiness, color=Future)) +"
+"0","    geom_point(position = position_dodge(0.3), width = 0.3) +"
+"0","    geom_errorbar(aes(ymin = mean_happiness - sem_happiness, ymax = mean_happiness + sem_happiness),"
+"0","                  position = position_dodge(0.3), width = 0.1) + "
+"0","    geom_hline(yintercept = 0, linetype = ""dotted"", color = ""black"") +  "
+"0","    scale_color_manual(values = c(""Positive"" = ""#FFD700"", ""Negative"" = ""#FF6347"")) +"
+"0","    labs("
+"0","      title = paste0(""zHappy based on Future (Loss Domain) (N="", sample_size, "")""),"
+"0","      x = ""Future"","
+"0","      y = ""z-scored Happiness"""
+"0","    ) +"
+"0","    ylim(-0.3,0.3) + "
+"0","    theme_minimal() +"
+"0","    poster_theme +"
+"0","facet_wrap(~ diagnosis_anxiety, labeller = labeller(diagnosis_anxiety = c(""anx"" = ""Anxiety"", ""no anx"" = ""No Anxiety"")))"
+"2","Warning: [38;5;253mIgnoring unknown parameters: `width`[39m"
+"0","print(fig2c)"

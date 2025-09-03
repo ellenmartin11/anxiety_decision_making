@@ -1,0 +1,18 @@
+"0","fig2a <- ggplot(summary_happy_future, aes(x=Future, y=mean_happiness, color=Future)) +
+    geom_point(position = position_dodge(0.3), width = 0.3) +
+    geom_errorbar(aes(ymin = mean_happiness - sem_happiness, ymax = mean_happiness + sem_happiness),
+                  position = position_dodge(0.3), width = 0.1) + 
+    geom_hline(yintercept = 0, linetype = ""dotted"", color = ""black"") +  
+    scale_color_manual(values = c(""Positive"" = ""#FFD700"", ""Negative"" = ""#FF6347"")) +
+    labs(
+      title = paste0(""zHappy based on Future (Loss Domain) (N="", sample_size, "")""),
+      x = ""Future"",
+      y = ""z-scored Happiness""
+    ) +
+    ylim(-0.3,0.3) + 
+    theme_minimal() +
+    poster_theme 
+"
+"2","Warning: [38;5;253mIgnoring unknown parameters: `width`[39m"
+"0",""
+"0","print(fig2a)"

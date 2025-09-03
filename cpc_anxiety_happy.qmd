@@ -1,0 +1,4171 @@
+---
+title: "diggingHappyAnalyses"
+author: "Ellen Martin"
+format: html
+editor: visual
+---
+
+# CPC Conference Digging Game Analyses
+
+-   from the Happiness Project 2021-2024 (UK Sample)
+
+### Reading in Libraries, Paths and Files
+
+```{r Reading in Libraries, Paths and Files | echo: FALSE}
+
+
+library(readr)
+library(NatParksPalettes)
+library(ggplot2)
+library(Hmisc) #for computing correlation stuff
+library(knitr) 
+library(tidyverse, warn.conflict=F)
+library(corrplot)
+library(dplyr)
+library(MASS)
+library(sandwich)
+library(lmtest)
+library(broom)
+
+#paths and files
+data_path <- "C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\data\\happyData\\"
+
+# one and two plays (for people with at least 2 plays)
+onetwo_long_file <- paste0(data_path,"THP_uk_DiggingHappy2_n1409.csv")
+
+
+#parameters and model fits data
+happy_file_raw <- paste0(data_path, "modelBased\\happy_params4_raw_n4636.csv")
+
+happy_file_drift <- paste0(data_path, "modelBased\\happy_params5_raw_n4636.csv")
+
+happy_file_multi <- paste0(data_path, "modelBased\\happy_params4_onetwo_n1363.csv")
+
+#rsd_oneplay <- paste0(data_path, "THP_rsd_oneplay.csv")
+
+
+#survey data
+survey_file <- paste0("C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv")
+
+initquiz_file <- paste0(data_path, "THP_uk_initquiz.csv")
+
+
+```
+
+## Cleaning and Merging Data
+
+```{r Cleaning Imported Data | echo: FALSE}
+# Reading data
+T_digging_long <- read.csv(digging_long_file)
+length(unique(T_digging_long$userKey)) # 1448
+T_digging_long <- T_digging_long %>%
+  mutate(Trial = case_when(
+    SafeValue > 0 ~ "Gain",
+    SafeValue < 0 ~ "Loss"))
+
+T_digging_long <- T_digging_long %>%
+  group_by(userKey) %>%
+  summarise(Variance = var(RawHappy, na.rm = TRUE)) %>%
+  filter(Variance != 0) %>%
+  left_join(T_digging_long, by = "userKey")
+
+T_oneplay_long <- read.csv(oneplay_long_file)
+length(unique(T_oneplay_long$userKey)) # 5026
+T_oneplay_long <- T_oneplay_long %>%
+  mutate(Trial = case_when(
+    SafeValue > 0 ~ "Gain",
+    SafeValue < 0 ~ "Loss"))
+
+T_onetwo_long <- read.csv(onetwo_long_file)
+length(unique(T_onetwo_long$userKey)) # 1409
+T_onetwo_long <- T_onetwo_long %>%
+  mutate(Trial = case_when(
+    SafeValue > 0 ~ "Gain",
+    SafeValue < 0 ~ "Loss"))
+
+#filtering out people without variation in happiness ratings
+T_oneplay_long <- T_oneplay_long %>%
+  group_by(userKey) %>%
+  summarise(Variance = var(RawHappy, na.rm = TRUE)) %>%
+  filter(Variance != 0) %>%
+  left_join(T_oneplay_long, by = "userKey")
+
+T_onetwo_long <- T_onetwo_long %>%
+  group_by(userKey) %>%
+  summarise(Variance = var(RawHappy, na.rm = TRUE)) %>%
+  filter(Variance != 0) %>%
+  left_join(T_onetwo_long, by = "userKey")
+
+length(unique(T_onetwo_long$userKey)) #1363
+
+# Survey Data
+T_survey <- read.csv("C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv")
+T_survey <- T_survey %>% 
+  dplyr::select(1:18)
+
+# Initial Quiz Data
+T_initquiz <- read.csv(initquiz_file)
+T_initquiz$gender[T_initquiz$gender == 999] <- NA
+T_initquiz$education[T_initquiz$education == 999] <- NA
+T_initquiz$lifeSatisfaction[T_initquiz$lifeSatisfaction == 999] <- NA
+
+length(unique(T_initquiz$userKey))
+
+T_initquiz <- T_initquiz %>% 
+  mutate(gender_group = case_when(
+    gender == 0 ~ "Female",
+    gender == 1 ~ "Male",
+    TRUE ~ "Other"
+  ))
+
+clean_birthYear <- function(df) {
+  df$birthYear <- as.numeric(gsub("[^0-9]", "", df$birthYear))
+  df$birthYear[df$birthYear < 1944 | df$birthYear == 0] <- NA
+  df
+}
+
+T_initquiz <- clean_birthYear(T_initquiz)
+T_initquiz$age <- 2024 - T_initquiz$birthYear
+T_initquiz <- T_initquiz %>%
+  filter(!is.na(T_initquiz$age))
+length(unique(T_initquiz$userKey)) #850
+
+T_initquiz <- T_initquiz %>%
+  mutate(age_group = case_when(
+    age >= 40 ~ "Above 40",
+    age < 40 ~ "Below 40"
+  ))
+
+T_initquiz <- T_initquiz %>%
+  mutate(age_bin = case_when(
+    age < 25 ~ "Below 25",
+    age >= 25 & age < 35 ~ "25-34",
+    age >= 35 & age < 45 ~ "35-44",
+    age >= 45 & age < 55 ~ "45-54",
+    age >= 55 & age < 65 ~ "55-64",
+    age >= 65 ~ "65+")
+  )
+
+#rsd_oneplay<-read.csv(rsd_oneplay)
+#happyData_rsd <- merge(T_oneplay_long,rsd_oneplay, by=c("userKey"#,"TrialNumber"))
+
+T_twoplay_long <- T_digging_long %>%
+  group_by(userKey) %>%
+  slice(1:28) %>%
+  ungroup()
+
+
+duplicateUser <- T_onetwo_long %>%
+  group_by(userKey) %>%
+  filter(n_distinct(age) > 1 | n_distinct(deviceType) > 1 | n_distinct(phq8_total) > 1) %>%
+  pull(userKey) %>%
+  unique()
+
+T_onetwo_long <- T_onetwo_long %>%
+  filter(!userKey %in% duplicateUser)
+
+length(unique(T_onetwo_long$userKey)) #790
+```
+
+#### Merging with Initquiz (Age + Gender Data)
+
+```{r Merging with Initquiz | echo: FALSE}
+
+# merging with initquiz data 
+T_digging_long <- merge(T_digging_long,T_initquiz, by="userKey")
+length(unique(T_digging_long$userKey)) #928
+T_oneplay_long <- merge(T_oneplay_long, T_initquiz, by="userKey")
+length(unique(T_oneplay_long$userKey)) #2664 after merging with init quiz
+T_twoplay_long <- merge(T_twoplay_long, T_initquiz, by="userKey")
+T_onetwo_long <- merge(T_onetwo_long,T_initquiz,by="userKey")
+length(unique(T_onetwo_long$userKey)) #795
+```
+
+```{r Age Distribution}
+age <- T_oneplay_long %>%
+  group_by(userKey) %>%
+  summarize(age = first(age_bin)) %>%
+  mutate(age = factor(age, levels = c("Below 25", "25-34", "35-44", "45-54", "55-64", "65+")))
+
+ggplot(age,aes(x=age)) + 
+  geom_histogram(stat="count",fill="lightblue",color="black") + 
+  theme_minimal() + 
+  ggtitle("Age Distribution")
+```
+
+#### Merging with Survey (PHQ and GAD Data)
+
+```{r Merging with Survey | echo: FALSE}
+T_digging_long <- merge(T_digging_long, T_survey, by = "userKey") 
+length(unique(T_digging_long$userKey)) 
+T_digging_long <- T_digging_long %>%
+  filter(!is.na(T_digging_long$phq8_total))
+length(unique(T_digging_long$userKey))
+
+
+T_oneplay_long <- merge(T_survey,T_oneplay_long, by="userKey")
+length(unique(T_oneplay_long$userKey)) #4326
+T_oneplay_long <- T_oneplay_long %>%
+  filter(!is.na(T_oneplay_long$phq8_total))
+length(unique(T_oneplay_long$userKey)) #3460
+
+T_twoplay_long <- merge(T_twoplay_long, T_survey, by = "userKey") 
+length(unique(T_twoplay_long$userKey)) 
+T_twoplay_long <- T_twoplay_long %>%
+  filter(!is.na(T_twoplay_long$phq8_total))
+length(unique(T_twoplay_long$userKey))
+
+T_onetwo_long <- merge(T_onetwo_long, T_survey, by = "userKey") 
+length(unique(T_onetwo_long$userKey)) 
+T_onetwo_long <- T_onetwo_long %>%
+  filter(!is.na(T_onetwo_long$phq8_total))
+length(unique(T_onetwo_long$userKey)) #1242
+
+```
+
+#### Happiness Model(s)
+
+-   4 parameter model (EV and RPE correspond to chosen option) - fit with just the first play of data
+
+```{r Happiness Model Parameters | echo: FALSE}
+
+#params_z <- read.csv(happy_file_z)
+params_raw <- read.csv(happy_file_raw)
+#params_drift <- read.csv(happy_file_drift)
+#params_ev <- read.csv(happy_file_drift_ev)
+params_raw_2 <-read.csv(happy_file_raw_2)
+params_multi <- read.csv(happy_file_multi)
+#params_risky <- read.csv(happy_file_raw_risky)
+#params_raw_constrain <- read.csv(happy_file_raw_constrain)
+#ev rpe tau const
+#params_z <- params_z %>%
+  #rename(
+    #ev_chosen_z = b_evrpe_1,
+   # rpe_chosen_z = b_evrpe_2,
+    #tau_z = b_evrpe_3,
+    #const_z = b_evrpe_4,
+   # r2_z = r2,
+   # sse_z = sse,
+   # aic_z = aic,
+   # bic_z =bic
+ # )
+params_raw <- params_raw %>%
+  rename(
+    ev_chosen_raw = b_evrpe_1,
+    rpe_chosen_raw = b_evrpe_2,
+    tau_raw = b_evrpe_3,
+    const_raw = b_evrpe_4,
+    r2_raw = r2,
+    sse_raw = sse,
+    aic_raw = aic,
+    bic_raw =bic
+  )
+
+
+params_raw_2 <- params_raw_2 %>%
+  rename(
+    ev_chosen_raw2 = b_evrpe_1,
+    rpe_chosen_raw2 = b_evrpe_2,
+    tau_raw2 = b_evrpe_3,
+    const_raw2 = b_evrpe_4,
+    r2_raw2 = r2,
+    sse_raw2 = sse,
+    aic_raw2 = aic,
+    bic_raw2 =bic
+  )
+
+
+params_drift <- params_drift %>%
+  rename(
+    ev_chosen_drift = b_evrpe_1,
+    rpe_chosen_drift = b_evrpe_2,
+    tau_drift = b_evrpe_3,
+    const_drift = b_evrpe_4,
+    drift = b_evrpe_5,
+    r2_drift = r2,
+    sse_drift = sse,
+    aic_drift = aic,
+    bic_drift =bic
+  )
+
+params_multi <- params_multi %>%
+  rename(
+    ev_chosen_multi = b_evrpe_1,
+    rpe_chosen_multi = b_evrpe_2,
+    tau_multi= b_evrpe_3,
+    const1_multi = b_evrpe_4,
+    const2_multi = b_evrpe_5,
+    r2_multi = r2,
+    sse_multi = sse,
+    aic_multi = aic,
+    bic_multi =bic
+  )
+
+params <- merge(params_raw, params_raw_2, by="userKey")
+
+happyData <- merge(T_oneplay_long, params, by="userKey")
+happyData <- merge(T_oneplay_long, params_raw_constrain, by="userKey")
+happyData2 <- merge(T_twoplay_long,params_raw_2, by="userKey")
+
+happyData12 <- merge(T_onetwo_long,params_multi,by="userKey")
+length(unique(happyData$userKey)) #3207
+length(unique(happyData12$userKey)) #795
+```
+
+## Exploration/Descriptives
+
+### Happiness Timecourse
+
+```{r Happiness Timecourse}
+selected_user <- T_oneplay_long %>%
+  distinct(userKey) %>%
+  sample_n(1) %>%
+  pull(userKey)
+
+selected_data <- T_oneplay_long %>%
+  filter(userKey == selected_user) %>%
+  distinct(RawHappy, .keep_all = TRUE)
+
+ggplot(selected_data, aes(x = TrialNumber, y = RawHappy)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Example Subject: Happiness Ratings Over Trials",
+    x = "Trial",
+    y = "Happiness Rating"
+  ) +
+  theme_minimal() + 
+  ylim(0, 1) +
+  theme(aspect.ratio=1)
+
+
+
+
+```
+
+### GAD and PHQ Correlation
+
+```{r GAD PHQ Correlation}
+summary <- T_oneplay_long %>%
+  group_by(userKey) %>%
+  summarise(PHQ_score = first(phq8_total),
+            GAD_score = first(gad7_total))
+
+cor.test(summary$PHQ_score, summary$GAD_score, method="spearman")
+
+summary <- T_digging_long %>%
+  group_by(userKey) %>%
+  summarise(PHQ_score = first(phq8_total),
+            GAD_score = first(gad7_total))
+
+cor.test(summary$PHQ_score, summary$GAD_score, method="spearman")
+
+ggplot(data=summary, aes(x=PHQ_score, y=GAD_score)) +
+  geom_point() +
+  geom_smooth(method="lm",SE=TRUE) + 
+  ggtitle("rho = 0.76, p<.001 (N=3207)") +
+  labs(x="depression (PHQ)", y="anxiety (GAD)") + 
+  theme_minimal() +
+  theme(aspect.ratio=1)
+
+summary <- T_twoplay_long %>%
+  group_by(userKey) %>%
+  summarise(PHQ_score = first(phq8_total),
+            GAD_score = first(gad7_total))
+
+
+```
+
+### Distribution of Happiness
+
+```{r Distribution of Happiness Ratings}
+dist <- T_oneplay_long %>%
+  group_by(userKey) %>%
+  summarise(mean_RawHappy = mean(RawHappy, na.rm=TRUE))
+
+ggplot(dist, aes(x=mean_RawHappy)) +
+  geom_histogram(fill="lightblue",color="black" ) +
+  theme_minimal() +
+  labs(title="Distribution of Raw Happiness Ratings (N=4636)",x="Raw Happiness",y="Frequency")
+```
+
+### Mean Happiness Against SD Happiness
+
+```{r Mean vs SD Happiness}
+summary <- T_oneplay_long %>%
+  group_by(userKey) %>%
+  summarise(mean_RawHappy = mean(RawHappy, na.rm=TRUE),
+          sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+          GAD = first(gad7_total),
+          PHQ = first(phq8_total))
+
+summary2 <- T_twoplay_long %>%
+  group_by(userKey) %>%
+  summarise(mean_RawHappy = mean(RawHappy, na.rm=TRUE),
+          sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+          GAD = first(gad7_total),
+          PHQ = first(phq8_total))
+
+ggplot(summary, aes(x=mean_RawHappy,y=sd_RawHappy)) +
+  geom_point() +
+  theme_minimal() +
+  xlab("Mean Happiness") +
+  ylab("SD Happiness")
+```
+
+### Predicting GAD/PHQ from Mean and SD Happiness
+
+```{r Predicting GAD from Mean and SD Happiness}
+lm1 <- rlm(GAD~mean_RawHappy+sd_RawHappy,data=summary2)
+robust_se <- vcovHC(lm1, type = "HC0")
+coeftest(lm1, robust_se)
+
+lm1_PHQ <-  rlm(PHQ~mean_RawHappy+sd_RawHappy,data=summary2)
+robust_se <- vcovHC(lm1_PHQ, type = "HC0")
+coeftest(lm1_PHQ, robust_se)
+
+
+
+```
+
+## Main Analyses
+
+### Filtering Data into Gain, Loss and Overall Data
+
+```{r Filtering Functions | echo: FALSE}
+#function to filter data for gain trials (regardless if gamble choice)
+filter_data_gain <- function(data) {
+  data %>%
+    filter(!is.na(RawHappy), SafeValue > 0)
+}
+
+#function to filter data for loss trials
+filter_data_loss <- function(data) {
+  data %>%
+    filter(!is.na(RawHappy), SafeValue < 0)
+}
+
+# filtering overall 
+filter_data_overall <- function(data) {
+  data %>%
+    filter(!is.na(RawHappy))
+}
+
+
+#filtered data sets
+filtered_data_gain_one <- filter_data_gain(T_oneplay_long)
+#filtered_data_gain_multi <- filter_data_gain(T_digging_long)
+filtered_data_gain_multi <- filter_data_gain(T_twoplay_long)
+
+filtered_data_loss_one <- filter_data_loss(T_oneplay_long)
+#filtered_data_loss_multi <- filter_data_loss(T_digging_long)
+filtered_data_loss_multi <- filter_data_loss(T_twoplay_long)
+
+filtered_data_overall_one <- filter_data_overall(T_oneplay_long)
+#filtered_data_overall_multi <- filter_data_overall(T_digging_long)
+filtered_data_overall_multi <- filter_data_overall(T_twoplay_long)
+
+
+```
+
+#### Play 1 and 2 Together Dataset
+
+```{r}
+# Function to filter data for gain trials (regardless of gamble choice)
+filter_data_gain <- function(data) {
+  data %>%
+    filter(!is.na(RawHappy), SafeValue > 0)
+}
+
+# Function to filter data for loss trials
+filter_data_loss <- function(data) {
+  data %>%
+    filter(!is.na(RawHappy), SafeValue < 0)
+}
+
+# Function to filter overall data
+filter_data_overall <- function(data) {
+  data %>%
+    filter(!is.na(RawHappy))
+}
+
+# Filter data for Play 1
+play1_data <- T_onetwo_long %>%
+  filter(PlayNo == 1)
+
+# Filter data for Play 2
+play2_data <- T_onetwo_long %>%
+  filter(PlayNo == 2)
+
+# Filter gain and loss trials for Play 1
+play1_gain_data <- filter_data_gain(play1_data)
+play1_loss_data <- filter_data_loss(play1_data)
+
+# Filter gain and loss trials for Play 2
+play2_gain_data <- filter_data_gain(play2_data)
+play2_loss_data <- filter_data_loss(play2_data)
+
+# Filter overall data for Play 1 and Play 2
+play1_overall_data <- filter_data_overall(play1_data)
+play2_overall_data <- filter_data_overall(play2_data)
+
+
+## 
+result_gain_one <- summarize_and_correlate(play1_gain_data)
+print(result_gain_one) #no correlation between PHQ and 
+
+result_loss_one <- summarize_and_correlate(play1_loss_data)
+print(result_loss_one) #no correlation between PHQ and 
+
+result_overall_one <- summarize_and_correlate(play1_overall_data)
+print(result_overall_one)
+
+result_gain_two <- summarize_and_correlate(play2_gain_data)
+print(result_gain_two) #no correlation between PHQ and 
+
+result_loss_two <- summarize_and_correlate(play2_loss_data)
+print(result_loss_two) #no correlation between PHQ and 
+
+result_overall_two <- summarize_and_correlate(play2_overall_data)
+print(result_overall_two)
+
+###############
+
+result_gain_one <- summarize_and_correlate_happiness(play1_overall_data)
+print(result_gain_one)
+result_gain_two <- summarize_and_correlate_happiness(play2_overall_data)
+print(result_gain_two)
+
+```
+
+### Plots for One and Two Together Data
+
+```{r}
+summary_data <- play1_overall_data %>%
+  group_by(userKey) %>%
+  summarise(
+    mean_RawHappy = mean(RawHappy*100, na.rm = TRUE),
+    sd_RawHappy = sd(RawHappy*100, na.rm = TRUE),
+    GAD_score = first(gad7_total),
+    PHQ_score = first(phq8_total),
+    gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100) %>%
+  na.omit() %>%
+  mutate(
+    GAD_bin = cut(GAD_score, breaks = c(-Inf, 4, 9, 14, 21), labels = c("0-4", "5-9", "10-14", "15-21"))
+  )
+
+summary_data_play2 <- play2_overall_data %>%
+  group_by(userKey) %>%
+  summarise(
+    mean_RawHappy = mean(RawHappy*100, na.rm = TRUE),
+    sd_RawHappy = sd(RawHappy*100, na.rm = TRUE),
+    GAD_score = first(gad7_total),
+    PHQ_score = first(phq8_total),
+    gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100) %>%
+  na.omit() %>%
+  mutate(
+    GAD_bin = cut(GAD_score, breaks = c(-Inf, 4, 9, 14, 21), labels = c("0-4", "5-9", "10-14", "15-21"))
+  )
+
+summary_stats <- summary_data %>%
+  group_by(GAD_bin) %>%
+  summarise(
+    mean_sd_RawHappy = mean(sd_RawHappy, na.rm = TRUE),
+    sem_sd_RawHappy = sd(sd_RawHappy, na.rm = TRUE) / sqrt(n())
+  )
+
+summary_stats_2 <- summary_data_play2 %>%
+  group_by(GAD_bin) %>%
+  summarise(
+    mean_sd_RawHappy = mean(sd_RawHappy, na.rm = TRUE),
+    sem_sd_RawHappy = sd(sd_RawHappy, na.rm = TRUE) / sqrt(n())
+  )
+
+summary_stats <- summary_stats %>% mutate(Play = "Play 1") #3075
+summary_stats_2 <- summary_stats_2 %>% mutate(Play = "Play 2")
+
+combined_stats <- bind_rows(summary_stats, summary_stats_2)
+
+ggplot(combined_stats, aes(x = GAD_bin, y = mean_sd_RawHappy, color = Play, group = Play)) +
+  geom_point(aes(shape = Play), size = 3) +
+  geom_errorbar(aes(ymin = mean_sd_RawHappy - sem_sd_RawHappy, ymax = mean_sd_RawHappy + sem_sd_RawHappy),
+                width = 0.2) +
+  geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+  labs(
+    title = "Mood Variation by Anxiety (N=787)",
+    x = "Anxiety (GAD score)",
+    y = "Happiness Std. Deviation"
+  ) +
+  theme_minimal() +
+  theme(
+    aspect.ratio = 1,
+    axis.line = element_line(size = 1, color = "black"),
+    panel.grid.major = element_blank(),   # Remove major grid lines
+    panel.grid.minor = element_blank(),   # Remove minor grid lines
+    axis.ticks = element_line(size = 0.5),  # Add axis ticks
+    axis.text = element_text(size = 12),    # Increase axis text size
+    axis.title = element_text(size = 14),   # Increase axis title size
+    plot.title = element_text(size = 16)    # Increase plot title size
+  ) +
+  scale_color_manual(values = c("Play 1" = "#009D83", "Play 2" = "#8BD7D2")) +
+  scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+
+#PHQ
+summary_data <- play1_overall_data %>%
+  group_by(userKey) %>%
+  summarise(
+    mean_RawHappy = mean(RawHappy*100, na.rm = TRUE),
+    sd_RawHappy = sd(RawHappy*100, na.rm = TRUE),
+    GAD_score = first(gad7_total),
+    PHQ_score = first(phq8_total)
+  ) %>%
+  na.omit() %>%
+  mutate(
+    PHQ_bin = cut(PHQ_score, breaks = c(-Inf, 4, 9, 14, 24), labels = c("0-4", "5-9", "10-14", "15-24"))
+  )
+
+summary_data_play2 <- play2_overall_data %>%
+  group_by(userKey) %>%
+  summarise(
+    mean_RawHappy = mean(RawHappy*100, na.rm = TRUE),
+    sd_RawHappy = sd(RawHappy*100, na.rm = TRUE),
+    GAD_score = first(gad7_total),
+    PHQ_score = first(phq8_total)
+  ) %>%
+  na.omit() %>%
+  mutate(
+    PHQ_bin = cut(PHQ_score, breaks = c(-Inf, 4, 9, 14, 24), labels = c("0-4", "5-9", "10-14", "15-24"))
+  )
+
+summary_stats <- summary_data %>%
+  group_by(PHQ_bin) %>%
+  summarise(
+    mean_sd_RawHappy = mean(sd_RawHappy, na.rm = TRUE),
+    sem_sd_RawHappy = sd(sd_RawHappy, na.rm = TRUE) / sqrt(n())
+  )
+
+summary_stats_2 <- summary_data_play2 %>%
+  group_by(PHQ_bin) %>%
+  summarise(
+    mean_sd_RawHappy = mean(sd_RawHappy, na.rm = TRUE),
+    sem_sd_RawHappy = sd(sd_RawHappy, na.rm = TRUE) / sqrt(n())
+  )
+
+summary_stats <- summary_stats %>% mutate(Play = "Play 1") #3075
+summary_stats_2 <- summary_stats_2 %>% mutate(Play = "Play 2") #1234
+
+combined_stats <- bind_rows(summary_stats, summary_stats_2)
+
+
+ggplot(combined_stats, aes(x = PHQ_bin, y = mean_sd_RawHappy, color = Play, group = Play)) +
+  geom_point(aes(shape = Play),size=3) +
+  geom_errorbar(aes(ymin = mean_sd_RawHappy - sem_sd_RawHappy, ymax = mean_sd_RawHappy + sem_sd_RawHappy),
+                width = 0.2) +
+  geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+  labs(
+    title = "Mood Variation by Depression (N=792)",
+    x = "Depression (PHQ Score)",
+    y = "Happiness Std. Deviation"
+  ) +
+  theme_minimal() +
+  theme(
+    aspect.ratio = 1,
+    axis.line = element_line(size = 1, color = "black"),
+    panel.grid.major = element_blank(),   # Remove major grid lines
+    panel.grid.minor = element_blank(),   # Remove minor grid lines
+    axis.ticks = element_line(size = 0.5),  # Add axis ticks
+    axis.text = element_text(size = 12),    # Increase axis text size
+    axis.title = element_text(size = 14),   # Increase axis title size
+    plot.title = element_text(size = 16)) +
+  ylim(8.75,13) +
+  scale_color_manual(values = c("Play 1" = "red", "Play 2" = "pink")) +
+  scale_linetype_manual(values = c("Play 1" = "dotted", "Play 2" = "dotted"))
+```
+
+### Robust Linear Regression Plays 1 and 2 Together
+
+```{r}
+linreg_1 <- T_onetwo_long %>% 
+  filter(PlayNo ==1) %>%
+  group_by(userKey) %>%
+  summarize(GAD=first(gad7_total),
+            PHQ=first(phq8_total),
+            age=first(age),
+            education=first(education),
+            gender=first(gender_group),
+            sd_RawHappy = sd(RawHappy*100,na.rm=TRUE))
+
+linreg_2 <- T_onetwo_long %>% 
+  filter(PlayNo ==2) %>%
+  group_by(userKey) %>%
+  summarize(GAD=first(gad7_total),
+            PHQ=first(phq8_total),
+            age=first(age),
+            education=first(education),
+            gender=first(gender_group),
+            sd_RawHappy = sd(RawHappy*100,na.rm=TRUE))
+
+rlm1 <- rlm(sd_RawHappy~GAD+age+education+gender,data=linreg_1)
+robust_se <- vcovHC(rlm1, type = "HC0")
+coeftest(rlm1, robust_se)
+
+rlm2 <- rlm(sd_RawHappy~GAD+age+education+gender,data=linreg_2)
+robust_se <- vcovHC(rlm2, type = "HC0")
+coeftest(rlm2, robust_se)
+
+rlm1_PHQ <- rlm(sd_RawHappy~PHQ+age+education+gender,data=linreg_1)
+robust_se <- vcovHC(rlm1_PHQ, type = "HC0")
+coeftest(rlm1_PHQ, robust_se)
+
+rlm2_PHQ <- rlm(sd_RawHappy~PHQ+age+education+gender,data=linreg_2)
+robust_se <- vcovHC(rlm2_PHQ, type = "HC0")
+coeftest(rlm2_PHQ, robust_se)
+
+### difference in gambling percent in gain and loss trials 
+play1_data <- T_onetwo_long %>%
+  filter(PlayNo == 1)
+
+# Filter data for Play 2
+play2_data <- T_onetwo_long %>%
+  filter(PlayNo == 2)
+
+gain_data <- filter_data_gain(play1_data)
+loss_data <- filter_data_loss(play1_data)
+
+summary_gain <- gain_data %>%
+  group_by(userKey) %>%
+  summarise(
+    gamble_decisions_gain = sum(Choice == 2, na.rm = TRUE),
+    total_decisions_gain = n(),
+    percent_gamble_gain = (gamble_decisions_gain / total_decisions_gain) * 100
+  ) %>%
+  na.omit()
+
+# Summarize data for loss trials
+summary_loss <- loss_data %>%
+  group_by(userKey) %>%
+  summarise(
+    gamble_decisions_loss = sum(Choice == 2, na.rm = TRUE),
+    total_decisions_loss = n(),
+    percent_gamble_loss = (gamble_decisions_loss / total_decisions_loss) * 100
+  ) %>%
+  na.omit()
+
+
+summary_combined <- summary_gain %>%
+  inner_join(summary_loss, by = "userKey") %>%
+  mutate(
+    percent_gamble_diff = percent_gamble_gain - percent_gamble_loss
+  )
+
+summary_data <- play1_overall_data %>%
+  group_by(userKey) %>%
+  summarise(
+    mean_RawHappy = mean(RawHappy * 100, na.rm = TRUE),
+    sd_RawHappy = sd(RawHappy * 100, na.rm = TRUE),
+    GAD_score = first(gad7_total),
+    PHQ_score = first(phq8_total),
+    age= first(age),
+    gender=first(gender_group),
+    gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+    total_decisions = n(),
+    percent_gamble = (gamble_decisions / total_decisions) * 100
+  ) %>%
+  na.omit() %>%
+  mutate(
+    GAD_bin = cut(GAD_score, breaks = c(-Inf, 4, 9, 14, 21), labels = c("0-4", "5-9", "10-14", "15-21"))
+  )
+
+# Merge the gain-loss difference with the overall summary
+final_summary_data <- summary_data %>%
+  left_join(summary_combined %>% dplyr::select(userKey, percent_gamble_diff), by = "userKey")
+
+
+
+rlm_risky <- rlm(PHQ_score~percent_gamble_diff,data=final_summary_data)
+robust_se <- vcovHC(rlm_risky, type = "HC0")
+coeftest(rlm_risky, robust_se) #anxiety not predicted by percent gamble diff, but is by depression in play 1 (-0.016, p =0.018)
+
+rlm_risky_demog <- rlm(PHQ_score~percent_gamble_diff+age+gender,data=final_summary_data)
+robust_se <- vcovHC(rlm_risky_demog, type = "HC0")
+coeftest(rlm_risky_demog, robust_se) # and in play 1 not when accounting for age and gender
+
+```
+
+### Relative SD Dataset
+
+```{r Relative SD Dataset | echo: FALSE}
+#filtered data sets
+filtered_data_gain_one_rsd <- filter_data_gain(happyData_rsd)
+filtered_data_loss_one_rsd <- filter_data_loss(happyData_rsd)
+filtered_data_overall_one_rsd <- filter_data_overall(happyData_rsd)
+
+```
+
+### Average % of Risky Decisions Correlation with GAD and PHQ
+
+```{r GAD and PHQ}
+
+# Function to summarize and correlate the filtered data
+summarize_and_correlate <- function(filtered_data) {
+  # Summarize the data
+  summary_data <- filtered_data %>%
+    group_by(userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100,
+      GAD_score = first(gad7_total),
+      PHQ_score = first(phq8_total),
+      SD_RawHappy = sd(RawHappy,na.rm=TRUE),
+      Mean_RawHappy = mean(RawHappy, na.rm=TRUE)
+    ) %>%
+    na.omit()
+  
+  # Calculate and print sample size
+  sample_size <- nrow(summary_data)
+  cat("Sample size:", sample_size, "\n")
+  
+  
+  # Calculate correlations
+  cor_PHQ <- cor.test(summary_data$percent_gamble, summary_data$PHQ_score, method = "spearman")
+  cor_GAD <- cor.test(summary_data$percent_gamble, summary_data$GAD_score, method = "spearman")
+
+  
+  # Output the results
+  list(cor_PHQ = cor_PHQ, cor_GAD = cor_GAD)
+}
+
+# Apply the function to each group
+result_gain_one <- summarize_and_correlate(filtered_data_gain_one)
+print(result_gain_one)
+
+result_gain_multi <- summarize_and_correlate(filtered_data_gain_multi)
+print(result_gain_multi)
+
+result_loss_one <- summarize_and_correlate(filtered_data_loss_one)
+print(result_loss_one)
+
+result_loss_multi <- summarize_and_correlate(filtered_data_loss_multi)
+print(result_loss_multi)
+
+result_overall_one <- summarize_and_correlate(filtered_data_overall_one)
+print(result_overall_one)
+
+result_overall_multi <- summarize_and_correlate(filtered_data_overall_multi)
+print(result_overall_multi)
+```
+
+### % Difference Gain- Loss Correlations
+
+```{r}
+summarize_data <- function(data) {
+  data %>%
+    group_by(userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100,
+      GAD_score = first(gad7_total),
+      PHQ_score = first(phq8_total)
+    ) %>%
+    na.omit()
+}
+
+# Function to calculate the difference in risky choices and correlate with GAD and PHQ
+summarize_and_correlate_difference <- function(gain_data, loss_data) {
+  # Summarize gain and loss data
+  summary_gain <- summarize_data(gain_data)
+  summary_loss <- summarize_data(loss_data)
+  
+  # Merge the summaries
+  summary_combined <- summary_gain %>%
+    inner_join(summary_loss, by = "userKey", suffix = c("_gain", "_loss")) %>%
+    mutate(
+      percent_gamble_diff = percent_gamble_gain - percent_gamble_loss,
+      GAD_score = GAD_score_gain,
+      PHQ_score = PHQ_score_gain
+    )
+  
+  # Calculate and print sample size
+  sample_size <- nrow(summary_combined)
+  cat("Sample size:", sample_size, "\n")
+  
+  # Calculate correlations
+  cor_PHQ_diff <- cor.test(summary_combined$percent_gamble_diff, summary_combined$PHQ_score, method = "spearman")
+  cor_GAD_diff <- cor.test(summary_combined$percent_gamble_diff, summary_combined$GAD_score, method = "spearman")
+
+  # Output the results
+  list(cor_PHQ_diff = cor_PHQ_diff, cor_GAD_diff = cor_GAD_diff)
+}
+
+gain_data <- filter_data_gain(play1_data)
+loss_data <- filter_data_loss(play1_data)
+
+results <- summarize_and_correlate_difference(gain_data, loss_data)
+print(results)
+
+
+
+```
+
+```{r}
+play1 <- T_onetwo_long%>%
+  filter(PlayNo==2)
+
+gain_summary <- play1 %>%
+  filter(Trial == "Gain") %>%
+  group_by(userKey) %>%
+  summarise(
+    percent_gamble_gain = sum(Choice == 2, na.rm = TRUE) / n() * 100
+  )
+
+# Calculate percentage of gambling for loss trials
+loss_summary <- play1 %>%
+  filter(Trial == "Loss") %>%
+  group_by(userKey) %>%
+  summarise(
+    percent_gamble_loss = sum(Choice == 2, na.rm = TRUE) / n() * 100
+  )
+
+# Combine summaries with GAD and PHQ scores
+final_summary <- play1 %>%
+  dplyr::select(userKey, gad7_total, phq8_total) %>%
+  distinct() %>%
+  left_join(gain_summary, by = "userKey") %>%
+  left_join(loss_summary, by = "userKey") %>%
+  rename(GAD = gad7_total, PHQ = phq8_total)
+
+final_summary <- final_summary %>%
+  mutate(dGainLoss = percent_gamble_gain-percent_gamble_loss)
+
+cor.test(final_summary$PHQ,final_summary$dGainLoss,method="spearman")
+```
+
+### Correlation Between SD Happiness and % In Risk
+
+```{r}
+summarize_and_correlate <- function(filtered_data) {
+  # Summarize the data
+  summary_data <- filtered_data %>%
+    group_by(userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100,
+      GAD_score = first(gad7_total),
+      PHQ_score = first(phq8_total),
+      SD_RawHappy = sd(RawHappy,na.rm=TRUE),
+      Mean_RawHappy = mean(RawHappy, na.rm=TRUE)
+      #,RSD_RawHappy = (SD_RawHappy/Mean_RawHappy)
+    ) %>%
+    na.omit()
+  
+  # Calculate and print sample size
+  sample_size <- nrow(summary_data)
+  cat("Sample size:", sample_size, "\n")
+  
+  
+  # Calculate correlations
+  cor_gamble_meanHappy <- cor.test(summary_data$percent_gamble, summary_data$SD_RawHappy, method = "spearman")
+  
+  
+
+}
+
+# Apply the function to each group
+result_gain_one <- summarize_and_correlate(filtered_data_gain_one)
+print(result_gain_one)
+
+result_gain_multi <- summarize_and_correlate(filtered_data_gain_multi)
+print(result_gain_multi)
+
+result_loss_one <- summarize_and_correlate(filtered_data_loss_one)
+print(result_loss_one)
+
+result_loss_multi <- summarize_and_correlate(filtered_data_loss_multi)
+print(result_loss_multi)
+
+result_overall_one <- summarize_and_correlate(filtered_data_overall_one)
+print(result_overall_one)
+
+result_overall_multi <- summarize_and_correlate(filtered_data_overall_multi)
+print(result_overall_multi)
+```
+
+### Plotting Average % Gambling in Gain and Loss Trials
+
+```{r}
+#firstplay <- T_oneplay_long %>%
+#  semi_join(T_digging_long, by = "userKey")
+#length(unique(firstplay$userKey)) #1311
+
+#filtered_data_gain_one <- filter_data_gain(firstplay )
+#filtered_data_loss_one <- filter_data_loss(firstplay )
+#filtered_data_overall_one <- filter_data_overall(firstplay )
+
+
+# Function to calculate the percentage of risky choices
+summarize_data <- function(filtered_data, trial_type) {
+  filtered_data %>%
+    group_by(userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100
+    ) %>%
+    mutate(trial_type = trial_type)
+}
+
+# Summarize the data for gain and loss trials
+summarized_gain <- summarize_data(filtered_data_gain_one, "Gain")
+summarized_loss <- summarize_data(filtered_data_loss_one, "Loss")
+
+# Combine the summarized data
+summarized_data <- bind_rows(summarized_gain, summarized_loss)
+
+# Calculate mean and standard error for each trial type
+summarized_data_agg <- summarized_data %>%
+  group_by(trial_type) %>%
+  summarise(
+    mean_percent_gamble = mean(percent_gamble, na.rm = TRUE),
+    se_percent_gamble = sd(percent_gamble, na.rm = TRUE) / sqrt(n()),
+    sample_size = n()
+  )
+
+# Calculate total sample size
+total_sample_size <- summarized_data %>%
+  distinct(userKey) %>%
+  count() %>%
+  pull(n)
+
+# Create the bar plot
+ggplot(summarized_data_agg, aes(x=trial_type, y=mean_percent_gamble, fill=trial_type)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  geom_errorbar(aes(ymin=mean_percent_gamble - se_percent_gamble, ymax=mean_percent_gamble + se_percent_gamble), 
+                width=0.2, position=position_dodge(0.9)) +
+  labs(x="Trial Type", y="Mean Percent Gamble") +
+  ggtitle(paste("% Risky Choices in Digging Game (N=", total_sample_size, ")", sep="")) +
+  theme_minimal() +
+  ylim(0, 60)
+
+```
+
+### Plotting Gender Split Gain and Loss Trial Gambling
+
+#### Gender Filters
+
+```{r Gender Filtering | echo: FALSE}
+#gender
+
+T_oneplay_f <- T_oneplay_long %>% filter(gender==0)
+length(unique(T_oneplay_f$userKey)) #2011
+
+T_oneplay_m <- T_oneplay_long %>% filter(gender==1)
+length(unique(T_oneplay_m$userKey)) #463
+
+T_multi_f <- T_digging_long %>% filter(gender==0)
+length(unique(T_multi_f$userKey)) #672
+
+T_multi_m <- T_digging_long %>% filter(gender==1)
+length(unique(T_multi_m$userKey)) #150
+
+#trial filtering
+filtered_data_gain_one_f <- filter_data_gain(T_oneplay_f)
+filtered_data_gain_multi_f <- filter_data_gain(T_multi_f)
+
+filtered_data_gain_one_m <- filter_data_gain(T_oneplay_m)
+filtered_data_gain_multi_m <- filter_data_gain(T_multi_m)
+
+filtered_data_loss_one_f <- filter_data_loss(T_oneplay_f)
+filtered_data_loss_multi_f <- filter_data_loss(T_multi_f)
+
+filtered_data_loss_one_m <- filter_data_loss(T_oneplay_m)
+filtered_data_loss_multi_m <- filter_data_loss(T_multi_m)
+
+filtered_data_overall_one_f <- filter_data_overall(T_oneplay_f)
+filtered_data_overall_multi_f <- filter_data_overall(T_multi_f)
+
+filtered_data_overall_one_m <- filter_data_overall(T_oneplay_m)
+filtered_data_overall_multi_m <- filter_data_overall(T_multi_m)
+```
+
+#### Plot Comparing Male and Female Gambling
+
+```{r plot Comparing Male and Female Gambling}
+summarize_data <- function(filtered_data,gender) {
+  filtered_data %>%
+    group_by(userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100
+    ) %>%
+    mutate(gender = gender)
+}
+
+summarized_gain_f <- summarize_data(filtered_data_gain_one_f, "Female")
+summarized_gain_m <- summarize_data(filtered_data_gain_one_m, "Male")
+summarized_loss_f <- summarize_data(filtered_data_loss_one_f, "Female")
+summarized_loss_m <- summarize_data(filtered_data_loss_one_m, "Male")
+
+
+summarized_gain_f <- summarize_data(filtered_data_gain_multi_f, "Female")
+summarized_gain_m <- summarize_data(filtered_data_gain_multi_m, "Male")
+summarized_loss_f <- summarize_data(filtered_data_loss_multi_f, "Female")
+summarized_loss_m <- summarize_data(filtered_data_loss_multi_m, "Male")
+
+# Calculate mean and standard error
+summarized_gain <- bind_rows(summarized_gain_f, summarized_gain_m) %>%
+  group_by(gender) %>%
+  summarise(
+    mean_percent_gamble = mean(percent_gamble, na.rm = TRUE),
+    se_percent_gamble = sd(percent_gamble, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  mutate(trial_type = "gain")
+
+summarized_loss <- bind_rows(summarized_loss_f, summarized_loss_m) %>%
+  group_by(gender) %>%
+  summarise(
+    mean_percent_gamble = mean(percent_gamble, na.rm = TRUE),
+    se_percent_gamble = sd(percent_gamble, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  mutate(trial_type = "loss")
+
+# Combine the summarized data
+summarized_data <- bind_rows(summarized_gain, summarized_loss)
+
+# Create the plot
+ggplot(summarized_data, aes(x=trial_type, y=mean_percent_gamble, fill=gender)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  geom_errorbar(aes(ymin=mean_percent_gamble - se_percent_gamble, ymax=mean_percent_gamble + se_percent_gamble), 
+                width=0.2, position=position_dodge(0.9)) +
+  labs(x="Trial Type", y="Mean Percent Gamble") +
+  ggtitle("% Risky Choices in Digging Game (N=2554)") +
+  theme_minimal() +
+  scale_fill_manual(values=c("Female" = "pink", "Male" = "lightgreen")) +
+  ylim(0, 60)
+# Adjust colors as needed
+```
+
+### Gender Split % Risky Choices with GAD and PHQ
+
+```{r Gender Split and Gambling}
+result_gain_one_f <- summarize_and_correlate(filtered_data_gain_one_f)
+print(result_gain_one_f)
+
+result_gain_one_m <- summarize_and_correlate(filtered_data_gain_one_m)
+print(result_gain_one_m)
+
+result_loss_one_f <- summarize_and_correlate(filtered_data_loss_one_f)
+print(result_loss_one_f)
+
+result_loss_one_m <- summarize_and_correlate(filtered_data_loss_one_m)
+print(result_loss_one_m)
+
+
+#gain
+result_gain_multi_f <- summarize_and_correlate(filtered_data_gain_multi_f)
+print(result_gain_multi_f)
+
+result_gain_multi_m <- summarize_and_correlate(filtered_data_gain_multi_m)
+print(result_gain_multi_m)
+
+result_loss_multi_f <- summarize_and_correlate(filtered_data_loss_multi_f)
+print(result_loss_multi_f)
+
+result_loss_multi_m <- summarize_and_correlate(filtered_data_loss_multi_m)
+print(result_loss_multi_m)
+
+
+#overall
+result_overall_one_f <- summarize_and_correlate(filtered_data_overall_one_f)
+print(result_overall_one_f)
+
+result_overall_one_m <- summarize_and_correlate(filtered_data_overall_one_m)
+print(result_overall_one_m)
+
+result_overall_multi_f <- summarize_and_correlate(filtered_data_overall_multi_f)
+print(result_overall_multi_f)
+
+result_overall_multi_m <- summarize_and_correlate(filtered_data_overall_multi_m)
+print(result_overall_multi_m)
+
+```
+
+### Raw Happiness and SD Happiness Correlation with PHQ / GAD in Gain and Loss Trials (and overall) (MAIN ANALYSES)
+
+#### Residual Standard Deviation Code:
+
+```{r RSD Function | echo: FALSE}
+# Mean
+mean_tc <- function(x) {
+  
+  # Remove nas and calculate mean 
+  mean_x = mean(x, na.rm = T)
+  return(mean_x)
+}
+
+# SD
+sd_tc <- function(x) {
+  
+  # Remove nas and calculate standard deviation
+  sd_x = sd(x, na.rm = T)
+  return(sd_x)
+}
+
+# SD*
+max_var <- function(mean, min, max, n) {
+  
+  # Compute the maximum possible variability given the mean
+  
+  # Extreme cases where mean = min or max
+  if (mean == min || mean == max) {
+    mv = 0
+  }
+  
+  # Normal cases
+  else {
+    # Determining number of elements at each bound which maximize variance
+    # Basically determining number of mins vs number of maxs 
+    n_max <- floor((n*mean - n*min) / (max - min)) # number of tc ratings at max value
+    n_min <- n - 1 - n_max                      # number of tc ratings at min value
+    
+    m <- n*mean - n_min*min - n_max*max
+    mv <- (n_min*(min - mean)^2 + n_max*(max - mean)^2 + (mean - m)^2) / (n - 1)
+  }
+  
+  return(mv)
+}
+
+relSD_tc <- function(x, min, max) {
+  
+  mean_x <- mean_tc(x)
+  sd_x <- sd_tc(x)
+  n <- length(x)
+  
+  # compute maximum possible sd given mean
+  mv <- max_var(mean_x, min, max, n)
+  msd <- sqrt(mv) 
+  
+  # compute relative sd (will be a proportion)
+  rsd <- sd_x / msd
+  
+  return(rsd)
+}
+```
+
+```{r RSD correlations}
+rsd_summary <- happyData_rsd %>%
+  group_by(userKey) %>%
+  summarise(mean_RawHappy = mean(RawHappy,na.rm=TRUE),
+            sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+            rsd_RawHappy = (sd_RawHappy/mean_RawHappy))
+
+cor.test(rsd_summary$sd_RawHappy,rsd_summary$rsd_RawHappy,method="spearman")
+
+min_value <- 0
+max_value <- 1 
+n_val <- length(unique(na.omit(happyData_rsd$userKey)))
+
+# Apply the relSD_tc function to the HappyRating column within each group
+happyData_rsd <- happyData_rsd %>%
+  group_by(userKey) %>%
+  mutate(RelSD = relSD_tc(HappyRating, min_value, max_value))
+
+# View the result
+summary <- happyData_rsd %>%
+  group_by(userKey) %>%
+  summarise(rsd = first(RelSD),
+            mean_RawHappy = mean(RawHappy,na.rm=TRUE))
+
+ggplot(summary, aes(mean_RawHappy,rsd)) +
+  geom_point()
+```
+
+-   correlation between relative SD and normal SD was very high, so SD used in the remained of analysis only
+
+```{r SD and Happiness Correlation}
+
+# function to summarize mean and sd Raw Hapiness and correlate with GAD and PHQ
+summarize_and_correlate_happiness <- function(filtered_data) {
+  # Summarize the data
+  summary_data <- filtered_data %>%
+    group_by(userKey) %>%
+    summarise(
+      mean_RawHappy = mean(RawHappy*100, na.rm = TRUE),
+      sd_RawHappy = sd(RawHappy*100, na.rm = TRUE),
+      GAD_score = mean(gad7_total,na.rm=TRUE),
+      PHQ_score = mean(phq8_total,na.rm=TRUE)
+    ) %>%
+    na.omit()
+  
+   sample_size <- nrow(summary_data)
+  cat("Sample size:", sample_size, "\n")
+  
+  # Calculate correlations
+  cor_PHQ_mean <- cor.test(summary_data$mean_RawHappy, summary_data$PHQ_score, method = "spearman")
+  cor_GAD_mean <- cor.test(summary_data$mean_RawHappy, summary_data$GAD_score, method = "spearman")
+  cor_PHQ_sd <- cor.test(summary_data$sd_RawHappy, summary_data$PHQ_score, method = "spearman")
+  cor_GAD_sd <- cor.test(summary_data$sd_RawHappy, summary_data$GAD_score, method = "spearman")
+ # cor_GAD_rsd <- cor.test(summary_data$rsd_RawHappy, summary_data$GAD_score, method="spearman")
+ # cor_PHQ_rsd <- cor.test(summary_data$rsd_RawHappy, summary_data$PHQ_score)
+
+  # Output the results
+  list(
+    cor_PHQ_mean = cor_PHQ_mean,
+    cor_GAD_mean = cor_GAD_mean,
+    cor_PHQ_sd = cor_PHQ_sd,
+    cor_GAD_sd = cor_GAD_sd
+    #cor_PHQ_rsd = cor_PHQ_rsd,
+    #cor_GAD_rsd = cor_GAD_rsd
+  )
+}
+
+# Can run the function on each filtered subset one by one to get results
+# Gain trials 
+result_gain_one <- summarize_and_correlate_happiness(filtered_data_gain_one)
+print(result_gain_one)
+
+
+result_gain_multi <- summarize_and_correlate_happiness(filtered_data_gain_multi)
+print(result_gain_multi)
+
+
+# Loss trials
+result_loss_one <- summarize_and_correlate_happiness(filtered_data_loss_one)
+print(result_loss_one)
+
+result_loss_multi <- summarize_and_correlate_happiness(filtered_data_loss_multi)
+print(result_loss_multi)
+
+
+# Overall (gain and loss combined)
+result_overall_one <- summarize_and_correlate_happiness(filtered_data_overall_one)
+print(result_overall_one)
+
+result_overall_multi <- summarize_and_correlate_happiness(filtered_data_overall_multi)
+print(result_overall_multi)
+
+
+```
+
+### Plotting
+
+```{r GAD Bin Plot}
+summary_data <- filtered_data_overall_one %>%
+  group_by(userKey) %>%
+  summarise(
+    mean_RawHappy = mean(RawHappy, na.rm = TRUE),
+    sd_RawHappy = sd(RawHappy, na.rm = TRUE),
+    GAD_score = first(gad7_total),
+    PHQ_score = first(phq8_total)
+  ) %>%
+  na.omit() %>%
+  mutate(
+    GAD_bin = cut(GAD_score, breaks = c(-Inf, 4, 9, 14, 21), labels = c("0-4", "5-9", "10-14", "15-21"))
+  )
+
+summary_data_play2 <- filtered_data_overall_multi %>%
+  group_by(userKey) %>%
+  summarise(
+    mean_RawHappy = mean(RawHappy, na.rm = TRUE),
+    sd_RawHappy = sd(RawHappy, na.rm = TRUE),
+    GAD_score = first(gad7_total),
+    PHQ_score = first(phq8_total)
+  ) %>%
+  na.omit() %>%
+  mutate(
+    GAD_bin = cut(GAD_score, breaks = c(-Inf, 4, 9, 14, 21), labels = c("0-4", "5-9", "10-14", "15-21"))
+  )
+
+summary_stats <- summary_data %>%
+  group_by(GAD_bin) %>%
+  summarise(
+    mean_sd_RawHappy = mean(sd_RawHappy, na.rm = TRUE),
+    sem_sd_RawHappy = sd(sd_RawHappy, na.rm = TRUE) / sqrt(n())
+  )
+
+summary_stats_2 <- summary_data_play2 %>%
+  group_by(GAD_bin) %>%
+  summarise(
+    mean_sd_RawHappy = mean(sd_RawHappy, na.rm = TRUE),
+    sem_sd_RawHappy = sd(sd_RawHappy, na.rm = TRUE) / sqrt(n())
+  )
+
+summary_stats <- summary_stats %>% mutate(Play = "Play 1 (N=3075)") #3075
+summary_stats_2 <- summary_stats_2 %>% mutate(Play = "Play 2 (N=1234)")
+
+combined_stats <- bind_rows(summary_stats, summary_stats_2)
+
+ggplot(combined_stats, aes(x = GAD_bin, y = mean_sd_RawHappy, color = Play, group = Play)) +
+  geom_point(aes(shape = Play),size=3) +
+  geom_errorbar(aes(ymin = mean_sd_RawHappy - sem_sd_RawHappy, ymax = mean_sd_RawHappy + sem_sd_RawHappy),
+                width = 0.2) +
+  geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+  labs(
+    title = "SD Happiness by Anxiety",
+    x = "GAD Score Bins",
+    y = "SD of Happiness"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0.0875, 0.135)) + 
+  theme(aspect.ratio = 1,
+        axis.line = element_line(size = 1, color = "black")) +
+  scale_color_manual(values = c("Play 1 (N=3075)" = "#00BD9D", "Play 2 (N=1234)" = "#8BD7D2")) +
+  scale_linetype_manual(values = c("Play 1 (N=3075)" = "dotted", "Play 2 (N=1234)" = "dotted"))
+```
+
+```{r PHQ Bin Plot}
+summary_data <- filtered_data_overall_one %>%
+  group_by(userKey) %>%
+  summarise(
+    mean_RawHappy = mean(RawHappy, na.rm = TRUE),
+    sd_RawHappy = sd(RawHappy, na.rm = TRUE),
+    GAD_score = first(gad7_total),
+    PHQ_score = first(phq8_total)
+  ) %>%
+  na.omit() %>%
+  mutate(
+    PHQ_bin = cut(PHQ_score, breaks = c(-Inf, 4, 9, 14, 24), labels = c("0-4", "5-9", "10-14", "15-24"))
+  )
+
+summary_data_play2 <- filtered_data_overall_multi %>%
+  group_by(userKey) %>%
+  summarise(
+    mean_RawHappy = mean(RawHappy, na.rm = TRUE),
+    sd_RawHappy = sd(RawHappy, na.rm = TRUE),
+    GAD_score = first(gad7_total),
+    PHQ_score = first(phq8_total)
+  ) %>%
+  na.omit() %>%
+  mutate(
+    PHQ_bin = cut(PHQ_score, breaks = c(-Inf, 4, 9, 14, 24), labels = c("0-4", "5-9", "10-14", "15-24"))
+  )
+
+summary_stats <- summary_data %>%
+  group_by(PHQ_bin) %>%
+  summarise(
+    mean_sd_RawHappy = mean(sd_RawHappy, na.rm = TRUE),
+    sem_sd_RawHappy = sd(sd_RawHappy, na.rm = TRUE) / sqrt(n())
+  )
+
+summary_stats_2 <- summary_data_play2 %>%
+  group_by(PHQ_bin) %>%
+  summarise(
+    mean_sd_RawHappy = mean(sd_RawHappy, na.rm = TRUE),
+    sem_sd_RawHappy = sd(sd_RawHappy, na.rm = TRUE) / sqrt(n())
+  )
+
+summary_stats <- summary_stats %>% mutate(Play = "Play 1 (N=3075)") #3075
+summary_stats_2 <- summary_stats_2 %>% mutate(Play = "Play 2 (N=1234)") #1234
+
+combined_stats <- bind_rows(summary_stats, summary_stats_2)
+
+
+ggplot(combined_stats, aes(x = PHQ_bin, y = mean_sd_RawHappy, color = Play, group = Play)) +
+  geom_point(aes(shape = Play), size = 3) +
+  geom_errorbar(aes(ymin = mean_sd_RawHappy - sem_sd_RawHappy, ymax = mean_sd_RawHappy + sem_sd_RawHappy),
+                width = 0.2) +
+  geom_line(aes(linetype = Play), size = 1, alpha = 0.7) +
+  labs(
+    title = "SD Happiness by Depression",
+    x = "PHQ Score Bins",
+    y = "SD of Happiness"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0.0875, 0.135)) + 
+  theme(
+    aspect.ratio = 1,
+    axis.line = element_line(size = 1, color = "black")
+  ) +
+  scale_color_manual(values = c("Play 1 (N=3075)" = "red", "Play 2 (N=1234)" = "pink")) +
+  scale_linetype_manual(values = c("Play 1 (N=3075)" = "dotted", "Play 2 (N=1234)" = "dotted"))
+```
+
+### Gender Specific Effects for SD Happiness and GAD/PHQ
+
+```{r Gender Specific Effects}
+#gender groups
+result_gain_one_f <- summarize_and_correlate_happiness(filtered_data_gain_one_f)
+print(result_gain_one_f)
+
+result_gain_one_m <- summarize_and_correlate_happiness(filtered_data_gain_one_m)
+print(result_gain_one_m)
+
+result_loss_one_f <- summarize_and_correlate_happiness(filtered_data_loss_one_f)
+print(result_loss_one_f)
+
+result_loss_one_m <- summarize_and_correlate_happiness(filtered_data_loss_one_m)
+print(result_loss_one_m)
+
+result_overall_one_f <- summarize_and_correlate_happiness(filtered_data_overall_one_f)
+print(result_overall_one_f)
+
+result_overall_one_m <- summarize_and_correlate_happiness(filtered_data_overall_one_m)
+print(result_overall_one_m)
+
+
+result_gain_multi_f <- summarize_and_correlate_happiness(filtered_data_gain_multi_f)
+print(result_gain_multi_f)
+
+result_gain_multi_m <- summarize_and_correlate_happiness(filtered_data_gain_multi_m)
+print(result_gain_multi_m)
+
+result_loss_multi_f <- summarize_and_correlate_happiness(filtered_data_loss_multi_f)
+print(result_loss_multi_f)
+
+result_loss_multi_m <- summarize_and_correlate_happiness(filtered_data_loss_multi_m)
+print(result_loss_multi_m)
+
+result_overall_multi_f <- summarize_and_correlate_happiness(filtered_data_overall_multi_f)
+print(result_overall_multi_f)
+
+result_overall_multi_m <- summarize_and_correlate_happiness(filtered_data_overall_multi_m)
+print(result_overall_multi_m)
+```
+
+### Correlation Between %Gambling in Gain Trials vs %Gambling in Loss Trials Overall
+
+```{r Correlation Between Gain and Loss Gambling}
+summarize_gambling <- function(data) {
+  data %>%
+    group_by(userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100
+    ) %>%
+    na.omit()
+}
+
+#oneplay
+summary_gain_one <- summarize_gambling(filtered_data_gain_one)
+summary_loss_one <- summarize_gambling(filtered_data_loss_one)
+merged_one <- merge(summary_gain_one, summary_loss_one, by = "userKey", suffixes=c("_gain","_loss"))
+
+cor.test(merged_one$percent_gamble_gain, merged_one$percent_gamble_loss, method = "spearman")
+
+ggplot(data=merged_one,aes(x=percent_gamble_gain, y=percent_gamble_loss)) + 
+  geom_point() +
+  geom_smooth(method="lm",se=TRUE) +
+  labs(
+    title="Correlation Between % Risky Choices in Gain vs Loss Trials (n=5002)",
+    x="% Risky Choice in Gain Trials",
+    y="% Risky Choice in Loss Trials"
+  ) +
+  theme_minimal()
+
+#multiplay
+summary_gain_multi <- summarize_gambling(filtered_data_gain_multi)
+summary_loss_multi <- summarize_gambling(filtered_data_loss_multi)
+merged_multi <- merge(summary_gain_multi, summary_loss_multi, by = "userKey", suffixes=c("_gain","_loss"))
+
+cor.test(merged_multi$percent_gamble_gain, merged_multi$percent_gamble_loss, method = "spearman")
+
+ggplot(data=merged_multi,aes(x=percent_gamble_gain, y=percent_gamble_loss)) + 
+  geom_point() +
+  geom_smooth(method="lm",se=TRUE) +
+  labs(
+    title="Correlation Between % Risky Choices in Gain vs Loss Trials (n=1448)",
+    x="% Risky Choice in Gain Trials",
+    y="% Risky Choice in Loss Trials"
+  ) +
+  theme_minimal()
+
+
+```
+
+### Correlation Between % Risky Choices in Gain and Loss Trials, Split by Age
+
+-   median is 40
+
+```{r Age Split | echo: FALSE}
+young_oneplay <- T_oneplay_long %>% filter(age < 40)
+length(unique(young_oneplay$userKey)) #1960 younger than 45
+
+older_oneplay <- T_oneplay_long %>% filter(age >= 40)
+length(unique(older_oneplay$userKey)) #1445 45 or older
+
+young_multi <- T_digging_long %>% filter(age < 40)
+
+older_multi <- T_digging_long %>% filter(age >= 40)
+
+```
+
+```{r Age Filtering | echo: FALSE}
+
+#filtered data sets
+filtered_data_gain_young <- filter_data_gain(young_oneplay)
+filtered_data_loss_young <- filter_data_loss(young_oneplay)
+
+filtered_data_gain_older <- filter_data_gain(older_oneplay)
+filtered_data_loss_older <- filter_data_loss(older_oneplay)
+
+filtered_data_overall_young <- filter_data_overall(young_oneplay)
+filtered_data_overall_older <- filter_data_overall(older_oneplay)
+
+#multiplay
+filtered_data_gain_young_multi <- filter_data_gain(young_multi)
+filtered_data_loss_young_multi <- filter_data_loss(young_multi)
+
+filtered_data_gain_older_multi <- filter_data_gain(older_multi)
+filtered_data_loss_older_multi <- filter_data_loss(older_multi)
+
+filtered_data_overall_young_multi <- filter_data_overall(young_multi)
+filtered_data_overall_older_multi <- filter_data_overall(older_multi)
+```
+
+#### Percent of Gambling Split by Age
+
+```{r Gambling Split by Age}
+summarize_gambling <- function(data) {
+  data %>%
+    group_by(userKey) %>%
+    summarise(
+      gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+      total_decisions = n(),
+      percent_gamble = (gamble_decisions / total_decisions) * 100
+    ) %>%
+    na.omit()
+}
+
+#younger ppts
+summary_gain_young <- summarize_gambling(filtered_data_gain_young)
+summary_loss_young <- summarize_gambling(filtered_data_loss_young)
+merged_one <- merge(summary_gain_young, summary_loss_young, by = "userKey", suffixes=c("_gain","_loss"))
+
+cor.test(merged_one$percent_gamble_gain, merged_one$percent_gamble_loss, method = "spearman")
+
+ggplot(data=merged_one,aes(x=percent_gamble_gain, y=percent_gamble_loss)) + 
+  geom_point() +
+  geom_smooth(method="lm",se=TRUE) +
+  labs(
+    title="Correlation Between % Risky Choices in Gain vs Loss Trials (n=1951)",
+    x="% Risky Choice in Gain Trials",
+    y="% Risky Choice in Loss Trials"
+  ) +
+  theme_minimal()
+
+#older ppts
+summary_gain_older <- summarize_gambling(filtered_data_gain_older)
+summary_loss_older <- summarize_gambling(filtered_data_loss_older)
+merged_multi <- merge(summary_gain_older, summary_loss_older, by = "userKey", suffixes=c("_gain","_loss"))
+
+cor.test(merged_multi$percent_gamble_gain, merged_multi$percent_gamble_loss, method = "spearman")
+
+ggplot(data=merged_multi,aes(x=percent_gamble_gain, y=percent_gamble_loss)) + 
+  geom_point() +
+  geom_smooth(method="lm",se=TRUE) +
+  labs(
+    title="Correlation Between % Risky Choices in Gain vs Loss Trials (n=1434)",
+    x="% Risky Choice in Gain Trials",
+    y="% Risky Choice in Loss Trials"
+  ) +
+  theme_minimal()
+```
+
+```{r Filtering }
+result_overall_young_one <- summarize_and_correlate(filtered_data_overall_young)
+print(result_overall_young_one)
+
+result_overall_older_one <- summarize_and_correlate(filtered_data_overall_older)
+print(result_overall_older_one)
+
+result_overall_young_multi <- summarize_and_correlate(filtered_data_overall_young_multi)
+print(result_overall_young_multi)
+
+result_overall_older_multi <- summarize_and_correlate(filtered_data_overall_older_multi)
+print(result_overall_older_multi)
+```
+
+#### Age Split Mood Variation Correlation with GAD and PHQ
+
+```{r Age Split Mood Variation Correlation with GAD and PHQ}
+summarize_and_correlate_happiness <- function(filtered_data) {
+  # Summarize the data
+  summary_data <- filtered_data %>%
+    group_by(userKey) %>%
+    summarise(
+      mean_RawHappy = mean(RawHappy, na.rm = TRUE),
+      sd_RawHappy = sd(RawHappy, na.rm = TRUE),
+      GAD_score = first(gad7_total),
+      PHQ_score = first(phq8_total)
+    ) %>%
+    na.omit()
+  
+   sample_size <- nrow(summary_data)
+  cat("Sample size:", sample_size, "\n")
+  
+  # Calculate correlations
+  cor_PHQ_mean <- cor.test(summary_data$mean_RawHappy, summary_data$PHQ_score, method = "spearman")
+  cor_GAD_mean <- cor.test(summary_data$mean_RawHappy, summary_data$GAD_score, method = "spearman")
+  cor_PHQ_sd <- cor.test(summary_data$sd_RawHappy, summary_data$PHQ_score, method = "spearman")
+  cor_GAD_sd <- cor.test(summary_data$sd_RawHappy, summary_data$GAD_score, method = "spearman")
+
+  # Output the results
+  list(
+    summary_data=summary_data,
+    cor_PHQ_mean = cor_PHQ_mean,
+    cor_GAD_mean = cor_GAD_mean,
+    cor_PHQ_sd = cor_PHQ_sd,
+    cor_GAD_sd = cor_GAD_sd
+  )
+}
+
+#one play
+result_gain_young_one <- summarize_and_correlate_happiness(filtered_data_gain_young)
+print(result_gain_young_one)
+
+result_gain_older_one <- summarize_and_correlate_happiness(filtered_data_gain_older)
+print(result_gain_older_one)
+
+result_loss_young_one <- summarize_and_correlate_happiness(filtered_data_loss_young)
+print(result_loss_young_one)
+
+result_loss_older_one <- summarize_and_correlate_happiness(filtered_data_loss_older)
+print(result_loss_older_one)
+
+result_overall_young_one <- summarize_and_correlate_happiness(filtered_data_overall_young)
+print(result_overall_young_one)
+
+result_overall_older_one <- summarize_and_correlate_happiness(filtered_data_overall_older)
+print(result_overall_older_one)
+
+
+# multiplay
+result_gain_young_multi <- summarize_and_correlate_happiness(filtered_data_gain_young_multi)
+print(result_gain_young_multi)
+
+result_gain_older_multi <- summarize_and_correlate_happiness(filtered_data_gain_older_multi)
+print(result_gain_older_multi)
+
+result_loss_young_multi <- summarize_and_correlate_happiness(filtered_data_loss_young_multi)
+print(result_loss_young_multi)
+
+result_loss_older_multi <- summarize_and_correlate_happiness(filtered_data_loss_older_multi)
+print(result_loss_older_multi)
+
+result_overall_young_multi <- summarize_and_correlate_happiness(filtered_data_overall_young_multi)
+print(result_overall_young_multi)
+
+result_overall_older_multi <- summarize_and_correlate_happiness(filtered_data_overall_older_multi)
+print(result_overall_older_multi)
+```
+
+### GAD and PHQ differences between age groups
+
+```{r GAD and PHQ differences between age groups | echo: FALSE}
+#merging with surveydata
+
+older_oneplay <- older_oneplay %>%
+  filter(!is.na(older_oneplay$gad7_total))
+length(unique(older_oneplay$userKey)) #1041
+
+
+young_oneplay <- young_oneplay %>%
+  filter(!is.na(young_oneplay$gad7_total))
+length(unique(young_oneplay$userKey)) #1456
+
+older_stats <- older_oneplay %>%
+  group_by(userKey) %>%
+  summarise(GAD_score = first(gad7_total),
+            PHQ_score = first(phq8_total)) %>%
+  summarise(mean_GAD = mean(GAD_score,na.rm=TRUE),
+            mean_PHQ = mean(PHQ_score,na.rm=TRUE),
+            SE_GAD = sd(GAD_score, na.rm = TRUE) / sqrt(n()),
+            SE_PHQ = sd(PHQ_score, na.rm = TRUE) / sqrt(n()))
+
+young_stats <- young_oneplay %>%
+  group_by(userKey) %>%
+  summarise(GAD_score = first(gad7_total),
+            PHQ_score = first(phq8_total)) %>%
+  summarise(mean_GAD = mean(GAD_score,na.rm=TRUE),
+            mean_PHQ = mean(PHQ_score,na.rm=TRUE),
+            SE_GAD = sd(GAD_score, na.rm = TRUE) / sqrt(n()),
+            SE_PHQ = sd(PHQ_score, na.rm = TRUE) / sqrt(n()))
+
+GAD_stats <- data.frame(
+  Group = c("Older", "Younger"),
+  Mean_GAD = c(older_stats$mean_GAD, young_stats$mean_GAD),
+  SE_GAD = c(older_stats$SE_GAD, young_stats$SE_GAD),
+  Mean_PHQ = c(older_stats$mean_PHQ, young_stats$mean_PHQ),
+    SE_PHQ = c(older_stats$SE_PHQ, young_stats$SE_PHQ)
+)
+
+```
+
+```{r GAD and PHQ plots age splits}
+#gad
+ggplot(GAD_stats, aes(x = Group, y = Mean_GAD, fill = Group)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_errorbar(aes(ymin = Mean_GAD - SE_GAD, ymax = Mean_GAD + SE_GAD), width = 0.2) +
+  scale_fill_manual(values = c("Older" = "lightblue", "Younger" = "coral")) +
+  labs(title = "Mean GAD age 40+ vs <40", x = "Group", y = "Mean GAD Score") +
+  theme_minimal()
+
+#phq
+ggplot(GAD_stats, aes(x = Group, y = Mean_PHQ, fill = Group)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_errorbar(aes(ymin = Mean_PHQ - SE_PHQ, ymax = Mean_PHQ + SE_PHQ), width = 0.2) +
+  scale_fill_manual(values = c("Older" = "lightblue", "Younger" = "coral")) +
+  labs(title = "Mean PHQ age 40+ vs <40", x = "Group", y = "Mean PHQ Score") +
+  theme_minimal()
+
+
+```
+
+```{r ttest}
+#t.test
+
+olderGAD <- older_oneplay %>%
+  group_by(userKey) %>%
+  summarise(GAD_score = first(gad7_total))
+
+youngGAD <- young_oneplay %>%
+  group_by(userKey) %>%
+  summarise(GAD_score = first(gad7_total))
+
+wilcox.test(youngGAD$GAD_score, olderGAD$GAD_score)
+```
+
+```{r mean sd between two groups}
+# mean sd between the two groups to see if sd happiness is lower among older participants
+older_stats <- older_oneplay %>%
+  group_by(userKey) %>%
+  summarise(GAD_score = first(gad7_total),
+            PHQ_score = first(phq8_total),
+            Raw_happy = first(RawHappy)) %>%
+  summarise(mean_GAD = mean(GAD_score,na.rm=TRUE),
+            mean_PHQ = mean(PHQ_score,na.rm=TRUE),
+            mean_happy = mean(Raw_happy, na.rm=TRUE),
+           SE_GAD = sd(GAD_score, na.rm = TRUE) / sqrt(n()),
+            SE_PHQ = sd(PHQ_score, na.rm = TRUE) / sqrt(n()),
+           SE_happy = mean(Raw_happy, na.rm=TRUE) / sqrt(n()))
+
+young_stats <- young_oneplay %>%
+  group_by(userKey) %>%
+  summarise(GAD_score = first(gad7_total),
+            PHQ_score = first(phq8_total),
+            Raw_happy = first(RawHappy)) %>%
+  summarise(mean_GAD = mean(GAD_score,na.rm=TRUE),
+            mean_PHQ = mean(PHQ_score,na.rm=TRUE),
+            mean_happy = mean(Raw_happy, na.rm=TRUE),
+           SE_GAD = sd(GAD_score, na.rm = TRUE) / sqrt(n()),
+            SE_PHQ = sd(PHQ_score, na.rm = TRUE) / sqrt(n()),
+           SE_happy = mean(Raw_happy, na.rm=TRUE) / sqrt(n())) 
+
+happy_stats <- data.frame(
+  Group = c("Older", "Younger"),
+  Mean_GAD = c(older_stats$mean_GAD, young_stats$mean_GAD),
+  SE_GAD = c(older_stats$SE_GAD, young_stats$SE_GAD),
+  Mean_PHQ = c(older_stats$mean_PHQ, young_stats$mean_PHQ),
+    SE_PHQ = c(older_stats$SE_PHQ, young_stats$SE_PHQ),
+  Mean_happy = c(older_stats$mean_happy, young_stats$mean_happy),
+  SE_happy = c(older_stats$SE_happy, young_stats$SE_happy)
+)
+
+# plot
+ggplot(happy_stats, aes(x = Group, y = Mean_happy, fill = Group)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_errorbar(aes(ymin = Mean_happy - SE_happy, ymax = Mean_happy + SE_happy), width = 0.2) +
+  scale_fill_manual(values = c("Older" = "lightblue", "Younger" = "coral")) +
+  labs(title = "Mean PHQ age 40+ vs <40", x = "Group", y = "Mean PHQ Score") +
+  theme_minimal()
+```
+
+```{r age split}
+olderhappy <- older_oneplay %>%
+  group_by(userKey) %>%
+  summarise(SD_happy = sd(RawHappy),
+            mean_happy = mean(RawHappy))
+
+younghappy <- young_oneplay %>%
+  group_by(userKey) %>%
+  summarise(SD_happy = sd(RawHappy),
+             mean_happy = mean(RawHappy))
+
+wilcox.test(younghappy$SD_happy, olderhappy$SD_happy)
+```
+
+### GAD and PHQ Correlation
+
+```{r GAD and PHQ Correlation }
+data_oneplay <- T_oneplay_long %>%
+  group_by(userKey) %>%
+  summarise(GAD_score = first(gad7_total),
+            PHQ_score = first(phq8_total))
+
+cor.test(data_oneplay$GAD_score,data_oneplay$PHQ_score,method="spearman")
+#0.78 (p<.0001)
+```
+
+### Gender
+
+```{r Gender, GAD and PHQ}
+#merging with surveydata
+
+females_oneplay <- T_oneplay_long %>% 
+  filter(gender==0) 
+
+males_oneplay <- T_oneplay_long %>%
+  filter(gender==1)
+
+
+females_stats <- females_oneplay %>%
+  group_by(userKey) %>%
+  summarise(GAD_score = first(gad7_total),
+            PHQ_score = first(phq8_total)) %>%
+  summarise(mean_GAD = mean(GAD_score,na.rm=TRUE),
+            mean_PHQ = mean(PHQ_score,na.rm=TRUE),
+            SE_GAD = sd(GAD_score, na.rm = TRUE) / sqrt(n()),
+            SE_PHQ = sd(PHQ_score, na.rm = TRUE) / sqrt(n()))
+
+males_stats <- males_oneplay %>%
+  group_by(userKey) %>%
+  summarise(GAD_score = first(gad7_total),
+            PHQ_score = first(phq8_total)) %>%
+  summarise(mean_GAD = mean(GAD_score,na.rm=TRUE),
+            mean_PHQ = mean(PHQ_score,na.rm=TRUE),
+            SE_GAD = sd(GAD_score, na.rm = TRUE) / sqrt(n()),
+            SE_PHQ = sd(PHQ_score, na.rm = TRUE) / sqrt(n()))
+
+GAD_stats <- data.frame(
+  Group = c("females", "males"),
+  Mean_GAD = c(females_stats$mean_GAD, males_stats$mean_GAD),
+  SE_GAD = c(females_stats$SE_GAD, males_stats$SE_GAD),
+  Mean_PHQ = c(females_stats$mean_PHQ, males_stats$mean_PHQ),
+    SE_PHQ = c(females_stats$SE_PHQ, males_stats$SE_PHQ)
+)
+
+#gad
+ggplot(GAD_stats, aes(x = Group, y = Mean_GAD, fill = Group)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_errorbar(aes(ymin = Mean_GAD - SE_GAD, ymax = Mean_GAD + SE_GAD), width = 0.2) +
+  scale_fill_manual(values = c("females" = "lightpink", "males" = "lightgreen")) +
+  labs(title = "Mean GAD females vs males", x = "Group", y = "Mean GAD Score") +
+  theme_minimal()
+
+#phq
+ggplot(GAD_stats, aes(x = Group, y = Mean_PHQ, fill = Group)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_errorbar(aes(ymin = Mean_PHQ - SE_PHQ, ymax = Mean_PHQ + SE_PHQ), width = 0.2) +
+  scale_fill_manual(values = c("females" = "lightpink", "males" = "lightgreen")) +
+  labs(title = "Mean PHQ females vs males", x = "Group", y = "Mean PHQ Score") +
+  theme_minimal()
+
+```
+
+```{r male female split | echo: FALSE}
+
+females <- T_oneplay_long %>% filter(gender==0)
+length(unique(females$userKey)) #2504
+males <- T_oneplay_long %>% filter(gender==1)
+length(unique(males$userKey)) #600
+```
+
+```{r filtering data | echo: FALSE}
+#filtered data sets
+filtered_data_gain_f <- filter_data_gain(females)
+filtered_data_loss_f <- filter_data_loss(females)
+filtered_data_overall_f <- filter_data_overall(females)
+
+filtered_data_gain_m <- filter_data_gain(males)
+filtered_data_loss_m <- filter_data_loss(males)
+filtered_data_overall_m <- filter_data_overall(males)
+
+
+```
+
+```{r}
+result_gain_f <- summarize_and_correlate_happiness(filtered_data_gain_f)
+print(result_gain_f)
+
+result_gain_m <- summarize_and_correlate_happiness(filtered_data_gain_m)
+print(result_gain_m)
+
+result_loss_f <- summarize_and_correlate_happiness(filtered_data_loss_f)
+print(result_loss_f)
+
+result_loss_m <- summarize_and_correlate_happiness(filtered_data_loss_m)
+print(result_loss_m)
+
+result_overall_f <- summarize_and_correlate_happiness(filtered_data_overall_f)
+print(result_overall_f)
+
+result_overall_m <- summarize_and_correlate_happiness(filtered_data_overall_m)
+print(result_overall_m)
+```
+
+## Extracting Correlations Between SD Happiness and GAD/PHQ
+
+### SD Happiness
+
+```{r SD extraction | echo: FALSE}
+extract_data <- function(result, play, group, measure) {
+  tibble(
+    Correlation = result[[paste0("cor_", measure, "_sd")]]$estimate,
+    PValue = result[[paste0("cor_", measure, "_sd")]]$p.value,
+    Play = play,
+    Group = group,
+    Measure = measure
+  )
+}
+
+data_list <- list(
+  extract_data(result_overall_one, "first", "all", "PHQ"),
+  extract_data(result_overall_one, "first", "all", "GAD"),
+  extract_data(result_overall_multi, "two and three", "all", "PHQ"),
+  extract_data(result_overall_multi, "two and three", "all", "GAD"),
+  extract_data(result_overall_one_f, "first", "female", "PHQ"),
+  extract_data(result_overall_one_f, "first", "female", "GAD"),
+  extract_data(result_overall_one_m, "first", "male", "PHQ"),
+  extract_data(result_overall_one_m, "first", "male", "GAD"),
+  extract_data(result_overall_multi_f, "two and three", "female", "PHQ"),
+  extract_data(result_overall_multi_f, "two and three", "female", "GAD"),
+  extract_data(result_overall_multi_m, "two and three", "male", "PHQ"),
+  extract_data(result_overall_multi_m, "two and three", "male", "GAD"),
+  extract_data(result_overall_young_one, "first", "below 40", "PHQ"),
+  extract_data(result_overall_young_one, "first", "below 40", "GAD"),
+  extract_data(result_overall_older_one, "first", "above 40", "PHQ"),
+  extract_data(result_overall_older_one, "first", "above 40", "GAD"),
+  extract_data(result_overall_young_multi, "two and three", "below 40", "PHQ"),
+  extract_data(result_overall_young_multi, "two and three", "below 40", "GAD"),
+  extract_data(result_overall_older_multi, "two and three", "above 40", "PHQ"),
+  extract_data(result_overall_older_multi, "two and three", "above 40", "GAD")
+)
+
+final_data <- bind_rows(data_list)
+
+```
+
+```{r}
+final_data$Group <- factor(final_data$Group,
+                           levels = c("all", "female", "male", "below 40", "above 40"))
+
+first_play_data <- final_data %>% filter(Play == "first")
+# Filter data for the multi play group
+multi_play_data <- final_data %>% filter(Play == "two and three")
+
+# Plot for the first play group
+first_play_plot <- ggplot(first_play_data, aes(x=Group, y=Correlation, fill=Measure)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.7, color="black") +
+  labs(x="Group", y="Spearman Correlation (rho)", title="Spearman Correlation for First Play") +
+  ylim(-0.05, 0.15) +
+  theme_minimal() +
+  scale_fill_brewer(palette="Set1")
+
+# Plot for the multi play group
+multi_play_plot <- ggplot(multi_play_data, aes(x=Group, y=Correlation, fill=Measure)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.7,color="black") +
+  labs(x="Group", y="Spearman Correlation (rho)", title="Spearman Correlation for Two and Three Plays") +
+  ylim(0, 0.15) +
+  theme_minimal() +
+  scale_fill_brewer(palette="Set1")
+
+# Print the plots
+print(first_play_plot)
+print(multi_play_plot)
+```
+
+### Raw Happiness
+
+```{r extracting data | echo: FALSE}
+extract_data <- function(result, play, group, measure) {
+  tibble(
+    Correlation = result[[paste0("cor_", measure, "_mean")]]$estimate,
+    PValue = result[[paste0("cor_", measure, "_mean")]]$p.value,
+    Play = play,
+    Group = group,
+    Measure = measure
+  )
+}
+
+data_list <- list(
+  extract_data(result_overall_one, "first", "all", "PHQ"),
+  extract_data(result_overall_one, "first", "all", "GAD"),
+  extract_data(result_overall_multi, "two and three", "all", "PHQ"),
+  extract_data(result_overall_multi, "two and three", "all", "GAD"),
+  extract_data(result_overall_one_f, "first", "female", "PHQ"),
+  extract_data(result_overall_one_f, "first", "female", "GAD"),
+  extract_data(result_overall_one_m, "first", "male", "PHQ"),
+  extract_data(result_overall_one_m, "first", "male", "GAD"),
+  extract_data(result_overall_multi_f, "two and three", "female", "PHQ"),
+  extract_data(result_overall_multi_f, "two and three", "female", "GAD"),
+  extract_data(result_overall_multi_m, "two and three", "male", "PHQ"),
+  extract_data(result_overall_multi_m, "two and three", "male", "GAD"),
+  extract_data(result_overall_young_one, "first", "below 40", "PHQ"),
+  extract_data(result_overall_young_one, "first", "below 40", "GAD"),
+  extract_data(result_overall_older_one, "first", "above 40", "PHQ"),
+  extract_data(result_overall_older_one, "first", "above 40", "GAD"),
+  extract_data(result_overall_young_multi, "two and three", "below 40", "PHQ"),
+  extract_data(result_overall_young_multi, "two and three", "below 40", "GAD"),
+  extract_data(result_overall_older_multi, "two and three", "above 40", "PHQ"),
+  extract_data(result_overall_older_multi, "two and three", "above 40", "GAD")
+)
+
+final_data_raw <- bind_rows(data_list)
+```
+
+```{r}
+final_data_raw$Group <- factor(final_data_raw$Group,
+                           levels = c("all", "female", "male", "below 40", "above 40"))
+
+first_play_data <- final_data_raw %>% filter(Play == "first")
+# Filter data for the multi play group
+multi_play_data <- final_data_raw %>% filter(Play == "two and three")
+
+# Plot for the first play group
+first_play_plot <- ggplot(first_play_data, aes(x=Group, y=Correlation, fill=Measure)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.7, color="black") +
+  labs(x="Group", y="Spearman Correlation (rho)", title="Spearman Correlation for First Play") +
+  ylim(-0.4, 0) +
+  theme_minimal() +
+  scale_fill_brewer(palette="Set1")
+
+# Plot for the multi play group
+multi_play_plot <- ggplot(multi_play_data, aes(x=Group, y=Correlation, fill=Measure)) +
+  geom_bar(stat="identity", position=position_dodge(), width = 0.7,color="black") +
+  labs(x="Group", y="Spearman Correlation (rho)", title="Spearman Correlation for Two and Three Plays") +
+  ylim(-0.4, 0) +
+  theme_minimal() +
+  scale_fill_brewer(palette="Set1")
+
+# Print the plots
+print(first_play_plot)
+print(multi_play_plot)
+```
+
+### Modelling SD Happiness and Age and GAD
+
+```{r linear model SD happiness and Age and GAD}
+model_data_one <- T_oneplay_long %>%
+  group_by(userKey) %>%
+  summarise(SD_happy = sd(RawHappy),
+            mean_happy = mean(RawHappy,na.rm=TRUE),
+            GAD = mean(gad7_total),
+            PHQ = mean(phq8_total),
+            gamble_decisions = sum(Choice == 2, na.rm = TRUE))
+
+m1 <- lm(SD_happy~GAD+gamble_decisions+mean_happy, data=model_data_one)
+summary(m1)
+m1_gamb <- lm(SD_happy~gamble_decisions, data=model_data_one)
+summary(m1_gamb)
+m1_phq <- lm(SD_happy~PHQ+gamble_decisions, data=model_data_one)
+summary(m1_phq)
+m1_phq_gad <- lm(SD_happy~PHQ+GAD, data=model_data_one)
+summary(m1_phq_gad)
+
+
+model_data_merged <- T_digging_long %>%
+  group_by(userKey) %>%
+  summarise(SD_happy = sd(RawHappy),
+            GAD = mean(gad7_total),
+            PHQ = mean(phq8_total),
+            gamble_decisions = sum(Choice == 2, na.rm = TRUE),
+            age = mean(age,na.rm=TRUE)
+            )
+      
+
+m2 <- lm(SD_happy~GAD, data=model_data_merged)
+summary(m2)
+m2_age <- lm(SD_happy~GAD+age, data=model_data_merged)
+summary(m2_age)
+
+m2_phq <- lm(SD_happy~PHQ, data=model_data_merged)
+summary(m2_phq)
+m2_phq_gad <- lm(SD_happy~PHQ+GAD, data=model_data_merged)
+summary(m2_phq_gad)
+
+```
+
+### Robust Regression Plays 1 and 2 Separate
+
+```{r}
+
+
+# Sample data frame
+summary_data_1 <- T_onetwo_long %>%
+  filter(PlayNo == 1) %>%
+  group_by(userKey) %>%
+  summarise(sd_RawHappy = sd(RawHappy*100,na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy*100, na.rm=TRUE),
+            GAD = mean(gad7_total,na.rm=TRUE),
+            age = mean(age,na.rm=TRUE),
+            PHQ = mean(phq8_total, na.rm=TRUE),
+            gender = first(gender_group),
+            education = first(education))
+
+summary_data_2 <- T_onetwo_long %>%
+  filter(PlayNo == 2) %>%
+  group_by(userKey) %>%
+  summarise(sd_RawHappy = sd(RawHappy*100,na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy*100, na.rm=TRUE),
+            GAD = mean(gad7_total,na.rm=TRUE),
+            age = mean(age,na.rm=TRUE),
+            PHQ = mean(phq8_total, na.rm=TRUE),
+            gender = first(gender_group),
+            education = first(education))
+
+# Fit the robust regression model
+robust_model <- rlm(sd_RawHappy ~ PHQ + age + gender + education, data = summary_data_2)
+
+robust_se <- vcovHC(robust_model, type = "HC0")
+coeftest(robust_model, robust_se)
+
+# Summarize the model results
+summary(robust_model)
+
+robust_GAD <- rlm(sd_RawHappy ~ PHQ+age+gender+education,data=summary_data_1)
+
+robust_se <- vcovHC(robust_GAD, type = "HC0") #sd predicts GAD accounting for mean RawHappy, but not accounting for age, gender and education
+
+coeftest(robust_GAD, robust_se)
+```
+
+## Happiness Model Parameter Sanity Checks
+
+```{r filtering out r2 | echo: FALSE}
+happyData <- merge(T_oneplay_long,params_raw, by="userKey")
+happyData2 <- merge(T_twoplay_long, params_raw_2, by="userKey")
+# removing anyone with negative r2 or r2 > .99
+happyData_valid <- happyData %>%
+  filter(r2_raw > 0.25 & r2_raw < 0.99) 
+
+happyData_valid2 <- happyData2 %>%
+  filter(r2_raw2 > 0.25 & r2_raw2 < 0.99) 
+
+
+```
+
+```{r}
+
+happyData_play1 <- happyData12 %>% filter(PlayNo == 1)
+happyData_play2 <- happyData12 %>% filter(PlayNo == 2)
+
+
+# Calculate sd_RawHappy and mean_RawHappy for Play 1
+play1_stats <- happyData_play1 %>%
+  group_by(userKey) %>%
+  summarize(sd_RawHappy_play1 = sd(RawHappy * 100, na.rm = TRUE),
+            mean_RawHappy_play1 = mean(RawHappy * 100, na.rm = TRUE))
+
+# Calculate sd_RawHappy and mean_RawHappy for Play 2
+play2_stats <- happyData_play2 %>%
+  group_by(userKey) %>%
+  summarize(sd_RawHappy_play2 = sd(RawHappy * 100, na.rm = TRUE),
+            mean_RawHappy_play2 = mean(RawHappy * 100, na.rm = TRUE))
+
+combined_stats <- happyData12 %>%
+  group_by(userKey) %>%
+  summarize(GAD = first(gad7_total),
+            PHQ = first(phq8_total),
+            sse_multi = first(sse_multi),
+            rpe_chosen_multi = first(rpe_chosen_multi*100),
+            abs_rpe = abs(rpe_chosen_multi),
+            r2_multi = first(r2_multi),
+            aic_multi = first(aic_multi),
+            bic_multi = first(bic_multi),
+            tau_multi = first(tau_multi),
+            age=first(age),
+            gender = first(gender_group),
+            education = first(education),
+            const1_multi = first(const1_multi),
+            const1_scaled = (const1_multi / 100),
+            ev_multi = first(ev_chosen_multi*100),
+            abs_ev = abs(ev_multi),
+            const2_multi = first(const2_multi),
+            rpe_ev_d = (rpe_chosen_multi - ev_multi)) %>%
+  mutate(GAD_group = ifelse(GAD >= 6, "GAD 6+", "GAD < 6"),
+         PHQ_group = ifelse(PHQ >= 7, "PHQ 7+", "PHQ < 7")) %>%
+  na.omit()
+
+# Merge the play-specific statistics back into the combined statistics
+final_summary <- combined_stats %>%
+  left_join(play1_stats, by = "userKey") %>%
+  left_join(play2_stats, by = "userKey")
+
+final_summary <- final_summary %>%
+  mutate(sd_RawHappy = (sd_RawHappy_play1+sd_RawHappy_play2)/2,
+            mean_RawHappy = (mean_RawHappy_play1+mean_RawHappy_play2)/2) 
+
+final_summary <- final_summary  %>%
+  mutate(
+    GAD_bin = cut(GAD, breaks = c(-Inf, 4, 9, 14, 21), labels = c("0-4", "5-9", "10-14", "15-21")),
+    PHQ_bin = cut(PHQ, breaks = c(-Inf, 4, 9, 14, 24), labels = c("0-4", "5-9", "10-14", "15-24"))
+  )
+
+
+# analyses with play 1 and 2 together
+sum <- happyData12 %>% 
+  group_by(userKey) %>% 
+  summarize(GAD=first(gad7_total),
+            PHQ = first(phq8_total),
+            sse_multi = first(sse_multi),
+            rpe_chosen_multi = first(rpe_chosen_multi),
+            abs_rpe = abs(rpe_chosen_multi),
+            r2_multi = first(r2_multi),
+            aic_multi= first(aic_multi),
+            bic_multi = first(bic_multi),
+            tau_multi = first(tau_multi),
+            const1_multi = first(const1_multi),
+            const1_scaled = (const1_multi/100),
+            ev_multi = first(ev_chosen_multi),
+            abs_ev = abs(ev_multi),
+            const2_multi = first(const2_multi),
+            sd_RawHappy = sd(RawHappy*100,na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy*100, na.rm=TRUE),
+            rpe_ev_d = (rpe_chosen_multi-ev_multi)) %>% 
+  mutate(GAD_group = ifelse(GAD >= 6, "GAD 6+", "GAD < 6"),
+         PHQ_group = ifelse(PHQ >= 7, "PHQ 7+", "PHQ < 7")) %>%
+  na.omit() 
+##                         
+
+cor.test(final_summary$GAD,final_summary$rpe_chosen_multi,method="spearman")
+cor.test(sum$GAD,sum$ev_multi,method="spearman") #very weakly correlated
+cor.test(sum$GAD,sum$rpe_chosen_multi,method="spearman")
+
+cor.test(sum$PHQ,sum$rpe_chosen_multi,method="spearman")
+
+cor.test(sum$PHQ,sum$ev_multi,method="spearman") #not correlated
+
+cor.test(final_summary$GAD,final_summary$abs_rpe,method="spearman") #correlated weakly
+cor.test(final_summary$GAD,final_summary$abs_ev,method="spearman") #correlated 
+
+cor.test(final_summary$PHQ,final_summary$abs_rpe,method="spearman") #not correlated (but near ish)
+cor.test(final_summary$PHQ,final_summary$abs_ev,method="spearman") #not correlated (but near ish)
+
+cor.test(sum$PHQ,sum$const1_scaled,method="spearman") #highly negatively correlated, same as GAD
+
+cor.test(final_summary$GAD,final_summary$sse_multi,method="spearman")
+cor.test(final_summary$PHQ,final_summary$sse_multi,method="spearman")
+
+
+cor.test(sum$GAD,sum$rpe_ev_d,method="spearman")
+cor.test(sum$PHQ,sum$rpe_ev_d,method="spearman")
+
+cor.test(final_summary$sd_RawHappy,final_summary$rpe_chosen_multi,method="spearman")
+cor.test(final_summary$sd_RawHappy,final_summary$abs_rpe,method="spearman")
+cor.test(final_summary$sd_RawHappy,final_summary$abs_ev,method="spearman")
+cor.test(final_summary$sd_RawHappy,final_summary$tau_multi,method="spearman")
+cor.test(final_summary$sd_RawHappy,final_summary$const1_multi,method="spearman")
+
+wilcox.test(final_summary$ev_multi,final_summary$rpe_chosen_multi,paired=TRUE)
+
+
+mean(final_summary$r2_multi)
+mean(final_summary$sse_multi)
+mean(final_summary$bic_multi)
+```
+
+#### Parameter Plots for One and Two
+
+```{r}
+summary_plot_data <- final_summary %>%
+  dplyr::select(ev_multi, rpe_chosen_multi) %>%
+  pivot_longer(cols = c(ev_multi, rpe_chosen_multi), 
+               names_to = "parameter", 
+               values_to = "value") %>%
+  group_by(parameter) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  na.omit()
+
+ggplot(summary_plot_data, aes(x = parameter, y = mean_value)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = "lightblue",color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "solid", color = "black", size = 0.5) +
+  labs(
+    title = "Happiness Model Parameters (N=787)",
+    x = "Parameter",
+    y = "Parameter Estimate"
+  ) +
+  theme_minimal() +
+  theme(
+    aspect.ratio = 1,
+    panel.grid.major = element_blank(),   # Remove major grid lines
+    panel.grid.minor = element_blank(),   # Remove minor grid lines
+    axis.ticks = element_line(size = 1),  # Add axis ticks
+    axis.text = element_text(size = 12),    # Increase axis text size
+    axis.title = element_text(size = 14),   # Increase axis title size
+    plot.title = element_text(size = 16),   # Increase plot title size
+    axis.line.x = element_line(size = 1, color = "black"),  # X-axis line at y=0
+    axis.line.y = element_line(size = 1, color = "black")   # Y-axis line
+  )  + 
+  ylim(-5,25) + 
+  scale_x_discrete(labels = c(
+                              "ev_multi" = "EV", 
+                              "rpe_chosen_multi" = "RPE"))
+
+mean(final_summary$r2_multi)
+
+```
+
+#### Split GAD and PHQ Plots for One and Two Together
+
+```{r}
+summary_happyData_long <- final_summary %>%
+  dplyr::select(userKey, GAD_group, PHQ_group, abs_rpe, abs_ev) %>%
+  pivot_longer(cols = c(abs_rpe, abs_ev), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(GAD_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = GAD_group)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7,color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    x = "Parameter",
+    y = "Parameter Estimate",
+    fill = "GAD Group"
+  ) +
+  theme_minimal() +
+theme(
+    aspect.ratio = 1,
+    panel.grid.major = element_blank(),   # Remove major grid lines
+    panel.grid.minor = element_blank(),   # Remove minor grid lines
+    axis.ticks = element_line(size = 1),  # Add axis ticks
+    axis.text = element_text(size = 12),    # Increase axis text size
+    axis.title = element_text(size = 14),   # Increase axis title size
+    plot.title = element_text(size = 16),
+    axis.line.x = element_line(size = 1, color = "black"),  # X-axis line at y=0
+    axis.line.y = element_line(size = 1, color = "black") ) + 
+  scale_fill_manual(values = c("GAD 6+" = "#00BD9D", "GAD < 6" = "#8BD7D2")) +
+  scale_x_discrete(labels = c("abs_ev" = "abs(EV)", 
+                              "abs_rpe" = "abs(RPE)"))
+
+#phq
+summary_stats <- summary_happyData_long %>%
+  group_by(PHQ_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = PHQ_group)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7,color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    x = "Parameter",
+    y = "Parameter Estimate",
+    fill = "PHQ Group"
+  ) +
+  theme_minimal() +
+  theme(
+    aspect.ratio = 1,
+    panel.grid.major = element_blank(),   # Remove major grid lines
+    panel.grid.minor = element_blank(),   # Remove minor grid lines
+    axis.ticks = element_line(size = 1),  # Add axis ticks
+    axis.text = element_text(size = 12),    # Increase axis text size
+    axis.title = element_text(size = 14),   # Increase axis title size
+    plot.title = element_text(size = 16),
+    axis.line.x = element_line(size = 1, color = "black"),  # X-axis line at y=0
+    axis.line.y = element_line(size = 1, color = "black") ) + 
+  scale_fill_manual(values = c("PHQ 7+" = "coral", "PHQ < 7" = "pink")) +
+  scale_x_discrete(labels = c("abs_ev" = "abs(EV)", 
+                              "abs_rpe" = "abs(RPE)"))
+```
+
+### Constants Split Between GAD Bins
+
+```{r}
+summary_stats <- final_summary %>%
+  group_by(GAD_bin) %>%
+  summarise(
+    mean_const = mean(const1_multi,na.rm=TRUE),
+    se_const = sd(const1_multi,na.rm=TRUE)/ sqrt(n())
+  )
+
+ggplot(summary_stats, aes(x = GAD_bin, y = mean_const)) +
+  geom_point(aes(x=GAD_bin, y=mean_const),color="blue") +
+  geom_errorbar(aes(ymin = mean_const - se_const, ymax = mean_const + se_const),
+                width = 0.2, color = "#00BD9D") +
+  labs(
+    x = "Anxiety (GAD score)",
+    y = "Baseline Happiness Parameter"
+  ) +
+  theme_minimal() +
+  theme(
+    aspect.ratio = 1,
+    panel.grid.major = element_blank(),   # Remove major grid lines
+    panel.grid.minor = element_blank(),   # Remove minor grid lines
+    axis.ticks = element_line(size = 1),  # Add axis ticks
+    axis.text = element_text(size = 12),    # Increase axis text size
+    axis.title = element_text(size = 14),   # Increase axis title size
+    plot.title = element_text(size = 16),
+    axis.line.x = element_line(size = 1, color = "black"),  # X-axis line at y=0
+    axis.line.y = element_line(size = 1, color = "black") ) +
+  ylim(30, 70)
+
+# BY PHQ
+summary_stats <- final_summary %>%
+  group_by(PHQ_bin) %>%
+  summarise(
+    mean_const = mean(const1_multi,na.rm=TRUE),
+    se_const = sd(const1_multi,na.rm=TRUE)/ sqrt(n())
+  )
+
+ggplot(summary_stats, aes(x = PHQ_bin, y = mean_const)) +
+  geom_point(aes(x=PHQ_bin,y=mean_const,color="red")) +
+  geom_errorbar(aes(ymin = mean_const - se_const, ymax = mean_const + se_const),
+                width = 0.2, color = "red") +
+  labs(
+    x = "Depression (PHQ score)",
+    y = "Baseline Happiness Parameter"
+  ) +
+  theme_minimal() +
+    theme(
+    aspect.ratio = 1,
+    panel.grid.major = element_blank(),   # Remove major grid lines
+    panel.grid.minor = element_blank(),   # Remove minor grid lines
+    axis.ticks = element_line(size = 1),  # Add axis ticks
+    axis.text = element_text(size = 12),    # Increase axis text size
+    axis.title = element_text(size = 14),   # Increase axis title size
+    plot.title = element_text(size = 16),
+    axis.line.x = element_line(size = 1, color = "black"),  # X-axis line at y=0
+    axis.line.y = element_line(size = 1, color = "black") ) +
+  ylim(30,70)
+
+
+```
+
+### Linear Models for Plays One Two Together
+
+```{r}
+rlm1 <- rlm(sd_RawHappy~abs_rpe+abs_ev+tau_multi+const1_multi+GAD,data=sum)
+
+robust_se <- vcovHC(rlm1, type = "HC0")
+coeftest(rlm1, robust_se)
+
+rlm1_GAD <- rlm(sd_RawHappy~abs_rpe+abs_ev+tau_multi+const1_multi+GAD,data=sum)
+robust_se <- vcovHC(rlm1_GAD, type = "HC0")
+coeftest(rlm1_GAD, robust_se)
+
+rlm1_PHQ <- rlm(sd_RawHappy~abs_rpe+abs_ev+tau_multi+const1_multi+PHQ,data=final_summary)
+robust_se <- vcovHC(rlm1_PHQ, type = "HC0")
+coeftest(rlm1_PHQ, robust_se)
+
+
+# predicting GAD and PHQ
+rlm1 <- rlm(GAD~abs_rpe+age+gender,data=final_summary)
+
+robust_se <- vcovHC(rlm1, type = "HC0")
+coeftest(rlm1, robust_se)
+
+rlm1_PHQ <- rlm(PHQ~abs_rpe+abs_ev+sd_RawHappy,data=final_summary)
+
+robust_se <- vcovHC(rlm1_PHQ, type = "HC0")
+coeftest(rlm1_PHQ, robust_se)
+```
+
+```{r}
+summary <- happyData_valid %>%
+  group_by(userKey) %>%
+  summarize(
+            r2_raw = mean(r2_raw, na.rm = TRUE),
+            tau_raw = mean(tau_raw, na.rm = TRUE),
+            ev_raw = mean(ev_chosen_raw, na.rm = TRUE),
+            rpe_raw = mean(rpe_chosen_raw, na.rm = TRUE),
+            const_raw = mean(const_raw, na.rm = TRUE),
+            tau_drift = mean(tau_drift, na.rm = TRUE),
+            ev_drift = mean(ev_chosen_drift, na.rm = TRUE),
+            rpe_drift = mean(rpe_chosen_drift, na.rm = TRUE),
+            const_drift = mean(const_drift, na.rm = TRUE),
+            drift = mean(drift, na.rm = TRUE),
+            r2_drift = mean(r2_drift,na.rm=TRUE),
+            sse_drift = mean(sse_drift,na.rm=TRUE),
+            aic_drift = mean(aic_drift,na.rm=TRUE),
+            bic_drift = mean(bic_drift,na.rm=TRUE),
+            abs_rpe_drift = abs(rpe_drift),
+            abs_ev_drift = abs(ev_drift),
+            GAD= first(gad7_total),
+            PHQ=first(phq8_total),
+            sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy, na.rm=TRUE),
+            sse_ev = mean(sse_ev,na.rm=TRUE),
+            aic_ev = mean(aic_ev,na.rm=TRUE),
+            bic_ev = mean(bic_ev,na.rm=TRUE),
+            r2_ev = mean(r2_ev,na.rm=TRUE),
+            ev_ev = mean(ev_chosen_ev,na.rm=TRUE),
+            tau_ev = mean(tau_ev,na.rm=TRUE),
+            const_ev = mean(const_ev,na.rm=TRUE),
+            drift_ev = mean(drift_ev, na.rm=TRUE)
+            )
+
+summary <- happyData%>%
+  group_by(userKey) %>%
+  summarize(
+            r2_raw = mean(r2_raw, na.rm = TRUE),
+            sse_raw = mean(sse_raw, na.rm = TRUE),
+            tau_raw = mean(tau_raw, na.rm = TRUE),
+            ev_raw = mean(ev_chosen_raw, na.rm = TRUE),
+            rpe_raw = mean(rpe_chosen_raw, na.rm = TRUE),
+            const_raw = mean(const_raw, na.rm = TRUE),
+            GAD= first(gad7_total),
+            PHQ=first(phq8_total),
+            sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy, na.rm=TRUE),
+            )
+
+
+summary_plot_data <- summary %>%
+  dplyr::select(tau_raw, ev_raw, rpe_raw, const_raw) %>%
+  pivot_longer(cols = c(tau_raw, ev_raw, rpe_raw, const_raw), 
+               names_to = "parameter", 
+               values_to = "value") %>%
+  group_by(parameter) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  na.omit()
+
+ggplot(summary_plot_data, aes(x = parameter, y = mean_value)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = "lightblue",color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Happiness Model Parameter Weights (N=3027)",
+    x = "Parameter Value",
+    y = "Mean Value"
+  ) +
+  theme_minimal() +
+  theme(aspect.ratio = 1,
+        axis.line = element_line(size = 1, color = "black")) + 
+  scale_x_discrete(labels = c("const_raw" = "Const", 
+                              "ev_raw" = "EV", 
+                              "rpe_raw" = "RPE", 
+                              "tau_raw" = "Tau"))
+
+summary_plot_data_drift <- summary %>%
+  select(tau_drift, ev_drift, rpe_drift, const_drift,drift) %>%
+  pivot_longer(cols = c(tau_drift, ev_drift, rpe_drift, const_drift,drift), 
+               names_to = "parameter", 
+               values_to = "value") %>%
+  group_by(parameter) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  na.omit()
+
+# Create the bar plot with error bars
+ggplot(summary_plot_data_drift, aes(x = parameter, y = mean_value)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = "lightblue",color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Happiness Model Parameter Weights (N=3066)",
+    x = "Parameter Value",
+    y = "Mean Value"
+  ) +
+  theme_minimal() +
+  theme(aspect.ratio = 1,
+        axis.line = element_line(size = 1, color = "black") + 
+  scale_x_discrete(labels = c("const_drift" = "Const", 
+                              "ev_drift" = "EV", 
+                              "rpe_drift" = "RPE", 
+                              "tau_drift" = "Tau",
+                              "drift" = "Drift"))
+```
+
+### Play 2 Only
+
+```{r}
+summary <- happyData_valid2 %>%
+  group_by(userKey) %>%
+  summarize(
+            r2_raw2 = mean(r2_raw2, na.rm = TRUE),
+            tau_raw2 = mean(tau_raw2, na.rm = TRUE),
+            ev_raw2 = mean(ev_chosen_raw2, na.rm = TRUE),
+            rpe_raw2 = mean(rpe_chosen_raw2, na.rm = TRUE),
+            const_raw2 = mean(const_raw2, na.rm = TRUE),
+            GAD= first(gad7_total),
+            PHQ=first(phq8_total),
+            sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy, na.rm=TRUE),
+            sse_raw2 = mean(sse_raw2,na.rm=TRUE)
+            )
+
+summary_plot_data <- summary %>%
+  dplyr::select(tau_raw2, ev_raw2, rpe_raw2, const_raw2) %>%
+  pivot_longer(cols = c(tau_raw2, ev_raw2, rpe_raw2, const_raw2), 
+               names_to = "parameter", 
+               values_to = "value") %>%
+  group_by(parameter) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  na.omit()
+
+ggplot(summary_plot_data, aes(x = parameter, y = mean_value)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = "lightblue",color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Happiness Model Parameter Weights (N=1073)",
+    x = "Parameter Value",
+    y = "Mean Value"
+  ) +
+  theme_minimal() +
+  theme(aspect.ratio = 1,
+        axis.line = element_line(size = 1, color = "black")) + 
+  scale_x_discrete(labels = c("const_raw2" = "Const", 
+                              "ev_raw2" = "EV", 
+                              "rpe_raw2" = "RPE", 
+                              "tau_raw2" = "Tau"))
+```
+
+### Constrained to Positive RPE
+
+```{r}
+summary <- happyData_valid %>%
+  group_by(userKey) %>%
+  summarize(
+            r2_constrain = mean(r2_constrain, na.rm = TRUE),
+            tau_constrain = mean(tau_constrain, na.rm = TRUE),
+            ev_constrain = mean(ev_chosen_constrain, na.rm = TRUE),
+            rpe_constrain = mean(rpe_chosen_constrain, na.rm = TRUE),
+            const_constrain = mean(const_constrain, na.rm = TRUE),
+            GAD= first(gad7_total),
+            PHQ=first(phq8_total),
+            sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy, na.rm=TRUE)
+            )
+
+summary_plot_data <- summary %>%
+  dplyr::select(tau_constrain, ev_constrain, rpe_constrain, const_constrain) %>%
+  pivot_longer(cols = c(tau_constrain, ev_constrain, rpe_constrain, const_constrain), 
+               names_to = "parameter", 
+               values_to = "value") %>%
+  group_by(parameter) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  na.omit()
+
+ggplot(summary_plot_data, aes(x = parameter, y = mean_value)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = "lightblue",color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Happiness Model Parameter Weights (N=1119)",
+    x = "Parameter Value",
+    y = "Mean Value"
+  ) +
+  theme_minimal() +
+  theme(aspect.ratio = 1) 
+#+ 
+  #scale_x_discrete(labels = c("const_raw2" = "Const", 
+                              #"ev_raw2" = "EV", 
+                              #"rpe_raw2" = "RPE", 
+                              #"tau_raw2" = "Tau"))
+```
+
+### Splitting Between Positive and Negative RPE
+
+```{r}
+# Raw happiness model
+happyData_raw <- merge(T_oneplay_long, params_raw, by="userKey")
+happyData_drift <- merge(T_oneplay_long, params_drift, by="userKey")
+happyData_ev <- merge(T_oneplay_long, params_ev, by="userKey")
+
+#removing negative r2 participants
+negative_r2_participants <- happyData %>%
+  filter(r2_raw < 0)
+mean(negative_r2_participants$r2_drift) #-5.05
+length(unique(negative_r2_participants$userKey)) #58 participants have R2 < 0
+
+# negative rpe participants (RAW)
+negative_rpe_raw <- happyData_raw %>%
+  filter(rpe_chosen_raw < 0)
+length(unique(negative_rpe_raw$userKey))
+
+# positive rpe participants (RAW)
+positive_rpe_raw <- happyData_raw %>%
+  filter(rpe_chosen_raw > 0)
+length(unique(positive_rpe_raw$userKey))
+
+# GAD and PHQ among negative RPE participants
+summary_neg_rpe_raw <- negative_rpe_raw %>%
+  group_by(userKey) %>%
+  summarise(sd_RawHappy = sd(RawHappy, na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy, na.rm=TRUE),
+            const = first(const_raw),
+            tau = first(tau_raw),
+            rpe = first(rpe_chosen_raw),
+            ev = first(ev_chosen_raw),
+            GAD = mean(gad7_total,na.rm=TRUE),
+            PHQ = mean(phq8_total,na.rm=TRUE),
+            gamble = sum(Choice==2,na.rm=TRUE))
+
+summary_neg_rpe_raw_plot <- summary_neg_rpe_raw %>%
+  select(tau, ev, rpe, const) %>%
+  pivot_longer(cols = c(tau, ev, rpe, const), 
+               names_to = "parameter", 
+               values_to = "value") %>%
+  group_by(parameter) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  na.omit()
+
+# Create the bar plot with error bars
+ggplot(summary_neg_rpe_raw_plot, aes(x = parameter, y = mean_value)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = "lightblue",color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Parameters (Raw-Negative RPEs) (N=852)",
+    x = "Parameter Value",
+    y = "Mean Value"
+  ) +
+  theme_minimal() + 
+  theme(aspect.ratio = 1)
+
+## mean values
+
+mean(summary_neg_rpe_raw$sd_RawHappy) #0.083
+mean(summary_neg_rpe_raw$const) #0.596
+mean(summary_neg_rpe_raw$tau) #0.441
+mean(summary_neg_rpe_raw$gamble) #13.87
+mean(summary_neg_rpe_raw$GAD,na.rm=TRUE) #7.85
+mean(summary_neg_rpe_raw$PHQ,na.rm=TRUE) #8.91
+mean(summary_neg_rpe_raw$ev) #-0.081
+
+
+```
+
+#### Positive RPE (Raw Model)
+
+```{r}
+summary_pos_rpe_raw <- positive_rpe_raw %>%
+  group_by(userKey) %>%
+  summarise(sd_RawHappy = sd(RawHappy, na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy, na.rm=TRUE),
+            const = first(const_raw),
+            tau = first(tau_raw),
+            rpe = first(rpe_chosen_raw),
+            ev = first(ev_chosen_raw),
+            GAD = mean(gad7_total,na.rm=TRUE),
+            PHQ = mean(phq8_total,na.rm=TRUE),
+            gamble = sum(Choice==2,na.rm=TRUE))
+
+
+summary_pos_rpe_raw_plot <- summary_pos_rpe_raw %>%
+  select(tau, ev, rpe, const) %>%
+  pivot_longer(cols = c(tau, ev, rpe, const), 
+               names_to = "parameter", 
+               values_to = "value") %>%
+  group_by(parameter) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  na.omit()
+
+ggplot(summary_pos_rpe_raw_plot, aes(x = parameter, y = mean_value)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = "lightblue",color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Parameters (Raw-Positive RPEs) (N=2355)",
+    x = "Parameter Value",
+    y = "Mean Value"
+  ) +
+  theme_minimal() + 
+  theme(aspect.ratio = 1)
+
+## mean values
+mean(summary$sd_RawHappy) #0.103
+mean(summary_pos_rpe_raw$sd_RawHappy) #0.111
+mean(summary_pos_rpe_raw$const) #0.533
+mean(summary_pos_rpe_raw$tau) #0.515
+mean(summary_pos_rpe_raw$gamble) #14.31
+mean(summary_pos_rpe_raw$GAD,na.rm=TRUE) #7.12
+mean(summary_pos_rpe_raw$PHQ,na.rm=TRUE) #8.23
+mean(summary_pos_rpe_raw$ev) #-0.187
+
+
+
+wilcox.test(summary_neg_rpe_raw$PHQ,summary_pos_rpe_raw$PHQ)
+# THE SD among people with negative rpes is lower
+
+```
+
+#### Negative RPE (Drift Model)
+
+```{r}
+###############
+
+negative_rpe_drift <- happyData_drift %>%
+  filter(rpe_chosen_drift < 0)
+length(unique(negative_rpe_drift$userKey)) # 844
+
+positive_rpe_drift <- happyData_drift %>%
+  filter(rpe_chosen_drift > 0)
+length(unique(positive_rpe_drift$userKey)) #2323
+
+summary_neg_rpe_drift <- negative_rpe_drift %>%
+  group_by(userKey) %>%
+  summarise(sd_RawHappy = sd(RawHappy, na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy, na.rm=TRUE),
+            const = first(const_drift),
+            tau = first(tau_drift),
+            rpe = first(rpe_chosen_drift),
+            ev = first(ev_chosen_drift),
+            abs_rpe = abs(rpe),
+            abs_ev = abs(ev),
+            GAD = mean(gad7_total,na.rm = TRUE),
+            PHQ = mean(phq8_total,na.rm=TRUE),
+            drift = first(drift),
+            gamble = sum(Choice==2,na.rm=TRUE))
+
+summary_neg_rpe_drift_plot <- summary_neg_rpe_drift %>%
+  select(tau, ev, rpe, const,drift) %>%
+  pivot_longer(cols = c(tau, ev, rpe, const,drift), 
+               names_to = "parameter", 
+               values_to = "value") %>%
+  group_by(parameter) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  na.omit()
+
+ggplot(summary_neg_rpe_drift_plot, aes(x = parameter, y = mean_value)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = "lightblue",color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Parameters (Drift-Negative RPEs) (N=884)",
+    x = "Parameter Value",
+    y = "Mean Value"
+  ) +
+  theme_minimal() + 
+  theme(aspect.ratio = 1)
+
+mean(summary_neg_rpe_drift$sd_RawHappy) #0.084
+mean(summary_neg_rpe_drift$const) #0.467
+mean(summary_neg_rpe_drift$tau) #0.469
+mean(summary_neg_rpe_drift$drift) #0.030
+mean(summary_neg_rpe_raw$gamble) #13.87
+mean(summary_neg_rpe_drift$GAD,na.rm=TRUE) #7.45
+mean(summary_neg_rpe_drift$PHQ,na.rm=TRUE) #8.61
+mean(summary_neg_rpe_drift$ev,na.rm=TRUE) #0.071
+
+
+```
+
+#### Positive RPE (Drift)
+
+```{r}
+summary_pos_rpe_drift <- positive_rpe_drift %>%
+  group_by(userKey) %>%
+  summarise(sd_RawHappy = sd(RawHappy, na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy, na.rm=TRUE),
+            const = first(const_drift),
+            tau = first(tau_drift),
+            rpe = first(rpe_chosen_drift),
+            ev = first(ev_chosen_drift),
+            GAD = mean(gad7_total,na.rm = TRUE),
+            PHQ = mean(phq8_total,na.rm=TRUE),
+            drift = first(drift),
+            gamble = sum(Choice==2,na.rm=TRUE))
+
+summary_pos_rpe_drift_plot <- summary_pos_rpe_drift %>%
+  select(tau, ev, rpe, const,drift) %>%
+  pivot_longer(cols = c(tau, ev, rpe, const,drift), 
+               names_to = "parameter", 
+               values_to = "value") %>%
+  group_by(parameter) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>%
+  na.omit()
+
+ggplot(summary_pos_rpe_drift_plot, aes(x = parameter, y = mean_value)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7, fill = "lightblue",color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Parameters (Drift-Positive RPEs) (N=2323)",
+    x = "Parameter Value",
+    y = "Mean Value"
+  ) +
+  theme_minimal() + 
+  theme(aspect.ratio = 1)
+
+
+mean(summary_pos_rpe_drift$sd_RawHappy) #0.111
+mean(summary_pos_rpe_drift$const) #0.469
+mean(summary_pos_rpe_drift$tau) #0.525
+mean(summary_pos_rpe_drift$drift) #0.023
+mean(summary_pos_rpe_raw$gamble) #14.31
+mean(summary_pos_rpe_drift$GAD,na.rm=TRUE) #7.24
+mean(summary_pos_rpe_drift$PHQ,na.rm=TRUE) #8.34
+mean(summary_pos_rpe_drift$ev,na.rm=TRUE) #0.130
+
+
+wilcox.test(summary_neg_rpe_drift$PHQ,summary_pos_rpe_drift$PHQ)
+
+
+```
+
+### Ngeative RPE (Drift) - EV only analyses
+
+```{r}
+negative_rpe_group <- happyData %>%
+  filter(rpe_chosen_drift < 0)
+
+positive_rpe_group <- happyData %>%
+  filter(rpe_chosen_drift > 0)
+
+negative_rpe_group_summary <- negative_rpe_group %>%
+  group_by(userKey) %>%
+  summarise(aic_drift=mean(aic_drift,na.rm=TRUE),
+            aic_ev=mean(aic_ev,na.rm=TRUE),
+            bic_drift=mean(bic_drift,na.rm=TRUE),
+            bic_ev=mean(bic_ev,na.rm=TRUE),
+            r2_drift=mean(r2_drift,na.rm=TRUE),
+            r2_ev=mean(r2_ev,na.rm=TRUE),
+            EV= first(ev_chosen_ev),
+            EV_abs = abs(EV),
+            GAD=mean(gad7_total,na.rm=TRUE),
+            PHQ=mean(phq8_total,na.rm=TRUE))
+
+mean(negative_rpe_group_summary$aic_drift) #lower aic in with RPE drift (26 better)
+mean(negative_rpe_group_summary$aic_ev) #bic higher for EV only
+
+mean(negative_rpe_group_summary$bic_drift) #lower bic in with RPE drift (24 better)
+mean(negative_rpe_group_summary$bic_ev)
+
+mean(negative_rpe_group_summary$r2_drift) #0.78
+mean(negative_rpe_group_summary$r2_ev) #0.60
+
+
+positive_rpe_group_summary <- positive_rpe_group %>%
+  group_by(userKey) %>%
+  summarise(aic_drift=mean(aic_drift,na.rm=TRUE),
+            aic_ev=mean(aic_ev,na.rm=TRUE),
+            bic_drift=mean(bic_drift,na.rm=TRUE),
+            bic_ev=mean(bic_ev,na.rm=TRUE),
+            r2_drift=mean(r2_drift,na.rm=TRUE),
+            r2_ev=mean(r2_ev,na.rm=TRUE))
+
+mean(positive_rpe_group_summary$aic_drift) #lower aic in with RPE drift (44 better)
+mean(positive_rpe_group_summary$aic_ev) #aic higher for EV only
+
+mean(positive_rpe_group_summary$bic_drift) #42 better in terms of aic
+mean(positive_rpe_group_summary$bic_ev) 
+
+mean(positive_rpe_group_summary$r2_drift) #0.84
+mean(positive_rpe_group_summary$r2_ev) #0.57
+
+#for the positive RPE group, the addition of the RPE parameter is more justified than for the -RPE group
+```
+
+### Correlations Split by RPE sign
+
+```{r}
+### DRIFT MODEL
+
+# NEG RPE SUBJECTS: correation between drift and GAD
+cor.test(summary_neg_rpe_drift$drift,summary_neg_rpe_drift$GAD,method="spearman") 
+
+# POS RPE SUBJECTS: correlation between drift and GAD
+cor.test(summary_pos_rpe_drift$drift,summary_pos_rpe_drift$GAD,method="spearman") 
+
+# NEG RPE: correlation between RPE and GAD 
+cor.test(summary_neg_rpe_drift$rpe,summary_neg_rpe_drift$GAD,method="spearman")
+
+# POS RPE: correlation between RPE and GAD 
+cor.test(summary_pos_rpe_drift$rpe,summary_pos_rpe_drift$GAD,method="spearman")
+
+# NEG RPE: correlation between SD Happy and RPE
+cor.test(summary_neg_rpe_drift$sd_RawHappy,summary_neg_rpe_drift$rpe,method="spearman") 
+
+# POS RPE: correlation between SD Happy and RPE
+cor.test(summary_pos_rpe_drift$sd_RawHappy,summary_pos_rpe_drift$rpe,method="spearman") 
+
+# NEG RPE: correlation between SD Happy and GAD
+cor.test(summary_neg_rpe_drift$sd_RawHappy,summary_neg_rpe_drift$GAD,method="spearman") 
+
+# NEG RPE: correlation between GAD and Tau 
+cor.test(summary_neg_rpe_drift$tau,summary_neg_rpe_drift$GAD,method="spearman") 
+
+# POS RPE: correlation between GAD and Tau
+cor.test(summary_pos_rpe_drift$tau,summary_pos_rpe_drift$GAD,method="spearman") 
+
+# NEG RPE: correlation between RPE and GAD
+cor.test(summary_neg_rpe_drift$rpe,summary_neg_rpe_drift$GAD,method="spearman")
+
+# POS RPE: correlation between RPE and GAD
+cor.test(summary_pos_rpe_drift$rpe,summary_pos_rpe_drift$GAD,method="spearman")
+
+
+### RAW MODEL
+
+# NEG RPE: RPE and GAD correlation
+cor.test(summary_neg_rpe_raw$rpe,summary_neg_rpe_raw$GAD,method="spearman") 
+
+# POS RPE: RPE and GAD correlation
+cor.test(summary_pos_rpe_raw$sd_RawHappy,summary_pos_rpe_raw$GAD,method="spearman")
+
+# NEG RPE: SD Happy and GAD correlation
+cor.test(summary_neg_rpe_raw$sd_RawHappy,summary_neg_rpe_raw$GAD,method="spearman") 
+
+# POS RPE: SD Happy and GAD correlation
+cor.test(summary_pos_rpe_raw$sd_RawHappy,summary_pos_rpe_raw$GAD,method="spearman") 
+
+
+# DRIFT EV ONLY MODEL
+
+
+summary <- happyData %>%
+  group_by(userKey) %>%
+  summarize(
+            EV = first(ev_chosen_ev),
+            EV_abs = abs(EV),
+            GAD = mean(gad7_total,na.rm=TRUE),
+            PHQ = mean(phq8_total, na.rm=TRUE))
+
+neg_ev <- happyData %>%
+  filter(ev_chosen_ev < 0)
+length(unique(neg_ev$userKey)) #1067
+
+neg_ev_summary <- neg_ev %>%
+  group_by(userKey) %>%
+  summarize(
+            EV = first(ev_chosen_ev),
+            Tau = first(tau_ev),
+            Drift = first(drift_ev),
+            Const = first(const_ev),
+            GAD = mean(gad7_total,na.rm=TRUE),
+            PHQ = mean(phq8_total, na.rm=TRUE))
+
+pos_ev <- happyData %>%
+  filter(ev_chosen_ev > 0)
+length(unique(pos_ev$userKey)) #2140
+
+pos_ev_summary <- pos_ev %>%
+  group_by(userKey) %>%
+  summarize(
+            EV = first(ev_chosen_ev),
+            Tau = first(tau_ev),
+            Drift = first(drift_ev),
+            Const = first(const_ev),
+            GAD = mean(gad7_total,na.rm=TRUE),
+            PHQ = mean(phq8_total, na.rm=TRUE))
+  
+
+# ALL RPE: EV AND GAD correlation
+cor.test(summary$EV_abs ,summary$GAD,method="spearman") 
+cor.test(summary$EV,summary$GAD,method="spearman") 
+
+# ALL RPE: EV NAD PHQ correlation
+cor.test(summary$EV_abs,summary$PHQ,method="spearman") 
+cor.test(summary$EV,summary$PHQ,method="spearman") 
+
+# NEG RPE: EV AND GAD correlation
+cor.test(negative_rpe_group_summary$EV,negative_rpe_group_summary$GAD,method="spearman") # EV not correlated with GAD
+cor.test(negative_rpe_group_summary$EV_abs,negative_rpe_group_summary$GAD,method="spearman") #absolute EV correlated with GAD
+
+
+# NEG EV: EV and GAD correlation
+cor.test(neg_ev_summary$EV ,neg_ev_summary$GAD,method="spearman") #anticorrelated
+
+# POS EV
+cor.test(pos_ev_summary$EV ,pos_ev_summary$GAD,method="spearman") #correlated
+
+
+
+
+
+```
+
+### Happiness Model Parameters Split by GAD and PHQ
+
+```{r}
+summary_happyData <- happyData_valid %>%
+  group_by(userKey) %>% 
+  summarize(tau_drift = mean(tau_drift, na.rm = TRUE),
+            tau_raw = mean(tau_raw, na.rm = TRUE),
+            ev_drift = mean(ev_chosen_drift, na.rm = TRUE),
+            ev_raw = mean(ev_chosen_raw, na.rm = TRUE),
+            rpe_drift = mean(rpe_chosen_drift, na.rm = TRUE),
+            rpe_raw = mean(rpe_chosen_raw, na.rm = TRUE),
+            const_drift = mean(const_drift, na.rm = TRUE),
+            const_raw = mean(const_raw, na.rm = TRUE),
+            rpe_abs = abs(rpe_raw),
+            ev_abs = abs(ev_raw),
+            rpe_abs_drift = abs(rpe_drift),
+            ev_abs_drift = abs(ev_drift),
+            drift = mean(drift,na.rm=TRUE),
+            abs_drift = abs(drift),
+            sd_RawHappy = sd(RawHappy, na.rm=TRUE),
+            r2_raw = mean(r2_raw,na.rm=TRUE),
+            r2_drift = mean(r2_drift, na.rm=TRUE),
+            GAD=mean(gad7_total,na.rm=TRUE),
+            PHQ=mean(phq8_total,na.rm=TRUE)) %>%
+  mutate(GAD_group = ifelse(GAD >= 7, "GAD 7+", "GAD < 7"),
+         PHQ_group = ifelse(PHQ >= 8, "PHQ 8+", "PHQ < 8"))
+
+
+
+pos_rpe <- summary_happyData %>%
+  filter(rpe_raw > 0)
+neg_rpe <- summary_happyData %>%
+  filter(rpe_raw < 0)
+
+pos_rpe_drift <- summary_happyData %>%
+  filter(rpe_drift > 0)
+neg_rpe_drift <- summary_happyData %>%
+  filter(rpe_drift < 0)
+
+# RAW PARAMETERS (with absolute EV and RPE)
+
+summary_happyData_long <- summary_happyData %>%
+  select(userKey, GAD_group, PHQ_group, rpe_abs, ev_abs, tau_raw, const_raw) %>%
+  pivot_longer(cols = c(rpe_abs, ev_abs, tau_raw, const_raw), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(GAD_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+# RAW PARAMETERS play 2 
+summary_happyData <- happyData2 %>%
+  group_by(userKey) %>% 
+  summarize(
+            const_raw2 = mean(const_raw2, na.rm = TRUE),
+            rpe_raw2 = mean(rpe_chosen_raw2,na.rm=TRUE),
+            ev_raw2 = mean(ev_chosen_raw2, na.rm = TRUE),
+            tau_raw2 = mean(tau_raw2, na.rm=TRUE),
+            sd_RawHappy = sd(RawHappy, na.rm=TRUE),
+            r2_raw2 = mean(r2_raw2,na.rm=TRUE),
+            GAD=mean(gad7_total,na.rm=TRUE),
+            PHQ=mean(phq8_total,na.rm=TRUE)) %>%
+  mutate(GAD_group = ifelse(GAD >= 7, "GAD 7+", "GAD < 7"),
+         PHQ_group = ifelse(PHQ >= 8, "PHQ 8+", "PHQ < 8"))
+
+summary_happyData_long <- summary_happyData %>%
+  dplyr::select(userKey, GAD_group, PHQ_group, rpe_raw2, ev_raw2, tau_raw2, const_raw2) %>%
+  pivot_longer(cols = c(rpe_raw2, ev_raw2, tau_raw2, const_raw2), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(GAD_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+
+###
+#RAW PARAMETERS 1
+
+summary_happyData <- happyData %>%
+  group_by(userKey) %>% 
+  summarize(
+            const_raw = mean(const_raw, na.rm = TRUE),
+            rpe_raw = mean(rpe_chosen_raw,na.rm=TRUE),
+            ev_raw = mean(ev_chosen_raw, na.rm = TRUE),
+            tau_raw = mean(tau_raw, na.rm=TRUE),
+            sd_RawHappy = sd(RawHappy, na.rm=TRUE),
+            r2_raw = mean(r2_raw,na.rm=TRUE),
+            GAD=mean(gad7_total,na.rm=TRUE),
+            PHQ=mean(phq8_total,na.rm=TRUE)) %>%
+  mutate(GAD_group = ifelse(GAD >= 7, "GAD 7+", "GAD < 7"),
+         PHQ_group = ifelse(PHQ >= 8, "PHQ 8+", "PHQ < 8"))
+
+summary_happyData_long <- summary_happyData %>%
+  dplyr::select(userKey, GAD_group, PHQ_group, rpe_raw, ev_raw, tau_raw, const_raw) %>%
+  pivot_longer(cols = c(rpe_raw, ev_raw, tau_raw, const_raw), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(PHQ_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+
+
+
+
+# RAW PARAMETERS PLAY 1 POSITIVE CONSTRAIN
+summary_happyData  <- happyData_valid %>%
+  group_by(userKey) %>%
+  summarize(
+            r2_constrain = mean(r2_constrain, na.rm = TRUE),
+            tau_constrain = mean(tau_constrain, na.rm = TRUE),
+            ev_constrain = mean(ev_chosen_constrain, na.rm = TRUE),
+            rpe_constrain = mean(rpe_chosen_constrain, na.rm = TRUE),
+            const_constrain = mean(const_constrain, na.rm = TRUE),
+            GAD= first(gad7_total),
+            PHQ=first(phq8_total),
+            sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy, na.rm=TRUE)
+            ) %>%
+  mutate(GAD_group = ifelse(GAD >= 7, "GAD 7+", "GAD < 7"),
+         PHQ_group = ifelse(PHQ >= 8, "PHQ 8+", "PHQ < 8"))
+
+summary_happyData_long <- summary_happyData %>%
+  dplyr::select(userKey, GAD_group, PHQ_group, rpe_constrain, ev_constrain, tau_constrain, const_constrain) %>%
+  pivot_longer(cols = c(rpe_constrain, ev_constrain, tau_constrain, const_constrain), 
+               names_to = "variable", values_to = "value")
+
+sd_summary <- summary_happyData %>%
+  group_by(GAD_group) %>%
+  summarize(
+    sd_ev_raw = sd(ev_raw, na.rm = TRUE),
+    sd_rpe_raw = sd(rpe_raw, na.rm = TRUE)
+  ) %>% na.omit()
+
+####
+ev_raw_gad_7plus <- happyData %>%
+  filter(gad7_total >= 7) %>%
+  pull(ev_chosen_raw)
+
+ev_raw_gad_less7 <- happyData %>%
+  filter(gad7_total < 7) %>%
+  pull(ev_chosen_raw)
+
+rpe_raw_gad_7plus <- happyData %>%
+  filter(gad7_total >= 7) %>%
+  pull(rpe_chosen_raw)
+
+rpe_raw_gad_less7 <- happyData %>%
+  filter(gad7_total < 7) %>%
+  pull(rpe_chosen_raw)
+
+# Perform the Wilcoxon rank-sum test
+ wilcox.test(ev_raw_gad_7plus, ev_raw_gad_less7)
+wilcox.test(rpe_raw_gad_7plus, rpe_raw_gad_less7)
+
+summary_stats <- summary_happyData_long %>%
+  group_by(GAD_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+# GAD plot
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = PHQ_group)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7) +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Comparison of Mean Values between PHQ Groups",
+    x = "Variable",
+    y = "Mean Value",
+    fill = "PHQ Group"
+  ) +
+  theme_minimal() +
+  theme(aspect.ratio=1,axis.line = element_line(size = 1, color = "black")) + 
+  scale_fill_manual(values = c("PHQ 8+" = "coral", "PHQ < 8" = "lightblue"))
+
+
+# RAW PARAMETERS (positive rpe only)
+summary_happyData_long <- pos_rpe %>%
+  select(userKey, GAD_group, PHQ_group, rpe_raw, ev_raw, tau_raw, const_raw) %>%
+  pivot_longer(cols = c(rpe_raw, ev_raw, tau_raw, const_raw), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(GAD_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+# GAD plot
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = GAD_group)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7) +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Comparison of Mean Values (+RPE)",
+    x = "Variable",
+    y = "Mean Value",
+    fill = "GAD Group"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("GAD 7+" = "coral", "GAD < 7" = "lightblue"))
+
+
+# RAW PARAMETERS (negative rpe only)
+summary_happyData_long <- neg_rpe %>%
+  select(userKey, GAD_group, PHQ_group, rpe_raw, ev_raw, tau_raw, const_raw) %>%
+  pivot_longer(cols = c(rpe_raw, ev_raw, tau_raw, const_raw), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(GAD_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+# GAD plot
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = GAD_group)) +
+  geom_bar(stat = "identity", position = position_dodge(), width = 0.7) +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+                position = position_dodge(0.7), width = 0.2) +
+  labs(
+    title = "Comparison of Mean Values Between GAD Groups",
+    x = "Variable",
+    y = "Mean Value",
+    fill = "GAD Group"
+  ) +
+  theme_minimal() +
+  theme(aspect.ratio=1,
+        axis.line = element_line(size = 1, color = "black")) +
+  scale_fill_manual(values = c("GAD 7+" = "coral", "GAD < 7" = "lightblue"))
+
+
+# DRIFT PARAMETERS 
+summary_happyData_long <- summary_happyData %>%
+  select(userKey, GAD_group, PHQ_group, rpe_drift, ev_drift, tau_drift, const_drift, drift) %>%
+  pivot_longer(cols = c(rpe_drift, ev_drift, tau_drift, const_drift, drift), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(GAD_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = GAD_group)) +
+  geom_bar(stat = "identity", position = position_dodge(),color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value), 
+                width = 0.2, position = position_dodge(0.9)) +
+  labs(x = "Parameter Value", y = "Mean Value") +
+  ggtitle("Happiness Model + Drift") +
+  theme_minimal() +
+  scale_fill_manual(values = c("GAD 7+" = "coral", "GAD < 7" = "lightblue")) +
+  scale_x_discrete(labels = c("const_drift" = "Const", 
+                              "ev_drift" = "EV", 
+                              "rpe_drift" = "RPE", 
+                              "tau_drift" = "Tau",
+                              "drift"="Drift")) +
+  theme(aspect.ratio=1)
+
+# Drift Parameters (+RPE)
+
+summary_happyData_long <- pos_rpe_drift %>%
+  select(userKey, GAD_group, PHQ_group, rpe_drift, ev_drift, tau_drift, const_drift, drift) %>%
+  pivot_longer(cols = c(rpe_drift, ev_drift, tau_drift, const_drift, drift), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(GAD_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = GAD_group)) +
+  geom_bar(stat = "identity", position = position_dodge(),color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value), 
+                width = 0.2, position = position_dodge(0.9)) +
+  labs(x = "Parameter Value", y = "Mean Value") +
+  ggtitle("Happiness Model + Drift") +
+  theme_minimal() +
+  scale_fill_manual(values = c("GAD 7+" = "coral", "GAD < 7" = "lightblue")) +
+  scale_x_discrete(labels = c("const_drift" = "Const", 
+                              "ev_drift" = "EV", 
+                              "rpe_drift" = "RPE", 
+                              "tau_drift" = "Tau",
+                              "drift"="Drift")) +
+  theme(aspect.ratio=1)
+
+
+# Drift Parameters (-RPE)
+summary_happyData_long <- neg_rpe_drift %>%
+  select(userKey, GAD_group, PHQ_group, rpe_drift, ev_drift, tau_drift, const_drift, drift) %>%
+  pivot_longer(cols = c(rpe_drift, ev_drift, tau_drift, const_drift, drift), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(GAD_group, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = GAD_group)) +
+  geom_bar(stat = "identity", position = position_dodge(),color="black") +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value), 
+                width = 0.2, position = position_dodge(0.9)) +
+  labs(x = "Parameter Value", y = "Mean Value") +
+  ggtitle("Happiness Model + Drift") +
+  theme_minimal() +
+  scale_fill_manual(values = c("GAD 7+" = "coral", "GAD < 7" = "lightblue")) +
+  scale_x_discrete(labels = c("const_drift" = "Const", 
+                              "ev_drift" = "EV", 
+                              "rpe_drift" = "RPE", 
+                              "tau_drift" = "Tau",
+                              "drift"="Drift")) +
+  theme(aspect.ratio=1)
+
+
+
+# PHQ PLots
+#ggplot(summary_stats, aes(x = variable, y = mean_value, fill = PHQ_group)) +
+ # geom_bar(stat = "identity", position = position_dodge(), width = 0.7) +
+  #geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value),
+               # position = position_dodge(0.7), width = 0.2) +
+  #labs(
+   # title = "Comparison of Mean Values between PHQ Groups",
+   # x = "Variable",
+    #y = "Mean Value",
+   # fill = "PHQ Group"
+  #) +
+  #theme_minimal() +
+  #scale_fill_manual(values = c("PHQ 8+" = "coral", "PHQ < 8" = "lightblue"))
+
+
+```
+
+### Linear Models: Play 2
+
+```{r}
+cor.test(summary_happyData$rpe_raw2,summary_happyData$PHQ,method="spearman")
+cor.test(summary_happyData$ev_raw2,summary_happyData$PHQ,method="spearman")
+
+lm1 <- lm(sd_RawHappy~rpe_raw2+ev_raw2+tau_raw2+const_raw2,data=summary_happyData)
+summary(lm1) 
+
+lm1_GAD <- lm(sd_RawHappy~rpe_raw2+ev_raw2+tau_raw2+const_raw2+GAD,data=summary_happyData)
+summary(lm1_GAD) 
+
+lm1_PHQ <- lm(sd_RawHappy~rpe_raw2+ev_raw2+tau_raw2+const_raw2+PHQ,data=summary_happyData)
+summary(lm1_PHQ) 
+```
+
+### Linear Models: RPE Play 1 Constrained
+
+```{r}
+cor.test(summary_happyData$rpe_constrain,summary_happyData$GAD,method="spearman")
+cor.test(summary_happyData$ev_constrain,summary_happyData$GAD,method="spearman") # ev is correlated with GAD but not RPE
+
+cor.test(summary_happyData$rpe_constrain,summary_happyData$PHQ,method="spearman")
+cor.test(summary_happyData$ev_constrain,summary_happyData$PHQ,method="spearman") #PHQ not correlated
+
+```
+
+### Linear Models: Negative RPE Raw
+
+```{r}
+
+cor.test(neg_rpe$GAD,neg_rpe$rpe_raw,method="spearman")
+lm1 <- lm(sd_RawHappy~rpe_raw+ev_raw+tau_raw+const_raw,data=neg_rpe)
+summary(lm1) #among negative rpe group, rpe is negatively predictive of sd happiness, ev is positively predictive of raw happiness, and baseline happiness negatively
+
+lm1_pos <- lm(sd_RawHappy~rpe_raw+ev_raw+tau_raw+const_raw,data=pos_rpe)
+summary(lm1_pos) #among positive rpe roup, rpe is positively predictive of sd happiness and baseline happiness negatively
+
+lm1_GAD <- lm(sd_RawHappy~rpe_raw+ev_raw+tau_raw+const_raw+GAD,data=neg_rpe)
+summary(lm1_GAD) #GAD predictive
+
+lm1_pos_GAD <- lm(sd_RawHappy~rpe_raw+ev_raw+tau_raw+const_raw+GAD,data=pos_rpe)
+summary(lm1_pos_GAD) #among positive rpe roup, rpe is positively predictive of sd happiness, tau slighlty, and so is GAD
+
+```
+
+### Linear Models: Negative RPE DRIFT
+
+```{r}
+lm2 <- lm(sd_RawHappy~rpe_drift+ev_drift+tau_drift+const_drift+drift,data=neg_rpe_drift)
+summary(lm2) # rpe still negatively predictive of SD raw happiness, ev predictive of SD happiness, drift negatively predictive of SD happiness
+
+lm2_GAD <- lm(sd_RawHappy~rpe_drift+ev_drift+tau_drift+const_drift+drift+GAD,data=neg_rpe_drift)
+summary(lm2_GAD) #drift no longer associated with SD happiness, but GAD is
+
+cor.test(neg_rpe$drift,neg_rpe$GAD,method="spearman") # GAD not correlated with drift
+
+lm2_pos <- lm(sd_RawHappy~rpe_drift+ev_drift+tau_drift+const_drift+drift,data=pos_rpe)
+summary(lm2_pos) #rpe and ev posiively predictive of SD ahppiness, drift negtaively predictive, tau positively predictive
+
+lm2_pos_GAD <- lm(sd_RawHappy~rpe_drift+ev_drift+tau_drift+const_drift+drift+GAD,data=pos_rpe)
+summary(lm2_pos_GAD) #all predictive
+
+```
+
+### Absolute Linear Models
+
+```{r}
+summary_happyData <- na.omit(summary_happyData)
+lm1_abs <- lm(sd_RawHappy~rpe_abs+ev_abs+tau_raw+const_raw,data=summary_happyData)
+summary(lm1_abs)
+
+lm1_abs_GAD <- lm(sd_RawHappy~rpe_abs+ev_abs+tau_raw+const_raw+GAD,data=summary_happyData)
+summary(lm1_abs_GAD)
+
+anova(lm1_abs,lm1_abs_GAD)
+
+lm1_abs_PHQ <- lm(sd_RawHappy~rpe_abs+ev_abs+tau_raw+const_raw+PHQ,data=summary_happyData)
+summary(lm1_abs_PHQ)
+
+lm2_abs_drift <- lm(sd_RawHappy~rpe_abs_drift+ev_abs_drift+tau_drift+const_drift+drift,data=summary_happyData)
+summary(lm2_abs_drift)
+
+lm2_abs_drift_GAD <- lm(sd_RawHappy~rpe_abs_drift+ev_abs_drift+tau_drift+const_drift+drift+GAD,data=summary_happyData)
+summary(lm2_abs_drift_GAD)
+
+anova(lm2_abs_drift,lm2_abs_drift_GAD)
+
+```
+
+#### Distribution of Summary Data
+
+```{r}
+variable_names <- c("tau_constrain", "ev_constrain", "rpe_constrain", "const_constrain")
+
+for (var_name in variable_names) {
+  p <- ggplot(summary_happyData, aes_string(x = var_name)) +
+    geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+    labs(title = paste("Histogram of", var_name), x = var_name, y = "Frequency") +
+    theme_minimal()
+  print(p)
+}
+```
+
+### Happiness Model Parameters Split by Gender
+
+```{r}
+happyData <- happyData %>%
+  filter(gender_group!="Other")
+
+summary_happyData <- happyData %>%
+  group_by(userKey) %>% 
+  summarize(tau_drift = mean(tau_drift, na.rm = TRUE),
+            tau_raw = mean(tau_raw, na.rm = TRUE),
+            ev_drift = mean(ev_chosen_drift, na.rm = TRUE),
+            ev_raw = mean(ev_chosen_raw, na.rm = TRUE),
+            rpe_drift = mean(rpe_chosen_drift, na.rm = TRUE),
+            rpe_raw = mean(rpe_chosen_raw, na.rm = TRUE),
+            const_drift = mean(const_drift, na.rm = TRUE),
+            const_raw = mean(const_raw, na.rm = TRUE),
+            rpe_abs = abs(rpe_raw),
+            ev_abs = abs(ev_raw),
+            drift = mean(drift,na.rm=TRUE),
+            gender = first(gender_group))
+
+## absolute
+summary_happyData_long <- summary_happyData %>%
+  select(userKey, gender, rpe_abs, ev_abs, tau_raw, const_raw) %>%
+  pivot_longer(cols = c(rpe_abs, ev_abs, tau_raw, const_raw), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(gender, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+# Create the bar plot with error bars and facet by type (_z or _raw)
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = gender)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value), 
+                width = 0.2, position = position_dodge(0.9)) +
+  labs(x = "Parameter", y = "Mean Value") +
+  ggtitle("Mean Values of Parameters by Gender") +
+  theme_minimal() +
+  scale_fill_brewer(palette="Set4")
+```
+
+### Happiness Model Parameters Split by Age Group
+
+```{r}
+summary_happyData <- happyData %>%
+  group_by(userKey) %>% 
+  summarize(r2_drift = mean(r2_drift, na.rm = TRUE),
+            r2_raw = mean(r2_raw, na.rm = TRUE),
+            tau_drift = mean(tau_drift, na.rm = TRUE),
+            tau_raw = mean(tau_raw, na.rm = TRUE),
+            ev_drift = mean(ev_chosen_drift, na.rm = TRUE),
+            ev_raw = mean(ev_chosen_raw, na.rm = TRUE),
+            rpe_drift = mean(rpe_chosen_drift, na.rm = TRUE),
+            rpe_raw = mean(rpe_chosen_raw, na.rm = TRUE),
+            const_drift = mean(const_drift, na.rm = TRUE),
+            const_raw = mean(const_raw, na.rm = TRUE),
+            rpe_abs = abs(rpe_raw),
+            ev_abs = abs(ev_raw),
+            age = first(age_group),
+            sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+            GAD = mean(gad7_total,na.rm=TRUE),
+            PHQ = mean(phq8_total,na.rm=TRUE),
+            drift = mean(drift,na.rm=TRUE))
+
+
+summary_happyData_long <- summary_happyData %>%
+  select(userKey, age, rpe_abs, ev_abs, tau_raw, const_raw) %>%
+  pivot_longer(cols = c(rpe_abs, ev_abs, tau_raw, const_raw), 
+               names_to = "variable", values_to = "value")
+
+summary_stats <- summary_happyData_long %>%
+  group_by(age, variable) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    se_value = sd(value, na.rm = TRUE) / sqrt(n())
+  ) %>% na.omit()
+
+# Create the bar plot with error bars and facet by type (_z or _raw)
+ggplot(summary_stats, aes(x = variable, y = mean_value, fill = age)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_errorbar(aes(ymin = mean_value - se_value, ymax = mean_value + se_value), 
+                width = 0.2, position = position_dodge(0.9)) +
+  labs(x = "Parameter", y = "Mean Value") +
+  ggtitle("Mean Values of Parameters by Age") +
+  theme_minimal() +
+  scale_fill_brewer(palette="Pastel2") 
+
+```
+
+### Correlations Between GAD/PHQ and Parameters
+
+### Correlation Between Parameters
+
+#### Correlation Between RPE and EV
+
+```{r}
+cor.test(summary_happyData$rpe_drift, summary_happyData$ev_drift,method="spearman")
+cor.test(summary_happyData$rpe_raw, summary_happyData$ev_raw, method="spearman")
+
+
+ggplot(summary_happyData, aes(rpe_drift, ev_drift)) +
+  geom_point() +
+  geom_smooth(method="lm",SE=TRUE) + 
+  theme_minimal() +
+  ggtitle("Correlation Between RPE and EV weights (Drift Model)") + 
+  xlab("RPE weight") +
+  ylab("EV weight")
+
+ggplot(summary_happyData, aes(rpe_raw, ev_raw)) +
+  geom_point() +
+  geom_smooth(method="lm",SE=TRUE) + 
+  theme_minimal() +
+  ggtitle("Correlation Between RPE and EV weights (Raw Model)") + 
+  xlab("RPE weight") +
+  ylab("EV weight")
+```
+
+#### Correlation Between Tau and RPE
+
+```{r}
+cor.test(summary_happyData$tau_drift, summary_happyData$rpe_drift,method="spearman")
+cor.test(summary_happyData$tau_raw, summary_happyData$rpe_raw, method="spearman")
+
+
+ggplot(summary_happyData, aes(rpe_drift, tau_drift)) +
+  geom_point() +
+  geom_smooth(method="lm",SE=TRUE) + 
+  theme_minimal() +
+  ggtitle("Correlation Between RPE and Tau weights (Drift Model)") + 
+  xlab("RPE weight") +
+  ylab("Tau weight")
+
+ggplot(summary_happyData, aes(rpe_raw, tau_raw)) +
+  geom_point() +
+  geom_smooth(method="lm",SE=TRUE) + 
+  theme_minimal() +
+  ggtitle("Correlation Between RPE and Tau weights (Raw Model)") + 
+  xlab("RPE weight") +
+  ylab("Tau weight")
+```
+
+#### Correlation between RPE and SD Happiness
+
+```{r}
+cor.test(summary_happyData$sd_RawHappy, summary_happyData$rpe_raw,method="spearman")
+cor.test(summary_happyData$sd_RawHappy, summary_happyData$rpe_drift,method="spearman")
+cor.test(summary_happyData$sd_RawHappy, summary_happyData$rpe_abs, method="spearman")
+
+ggplot(summary_happyData, aes(sd_RawHappy, rpe_raw)) +
+  geom_point() +
+  geom_smooth(method="lm",SE=TRUE) + 
+  theme_minimal() +
+  ggtitle("Correlation Between SD Happiness and RPE (Raw model) (N=2936)") + 
+  xlab("SD Happiness") +
+  ylab("Baseline Happiness weight")
+
+ggplot(summary_happyData, aes(sd_RawHappy, rpe_drift)) +
+  geom_point() +
+  geom_smooth(method="lm",SE=TRUE) + 
+  theme_minimal() +
+  ggtitle("Correlation Between SD Happiness and RPE (Drift model) (N=2936)") + 
+  xlab("SD Happiness") +
+  ylab("RPE weight")
+```
+
+### Comparing Association Between GAD and Happiness Across Groups Split by Happiness Baseline Parameter
+
+```{r}
+q1 <- summary_happyData %>%
+  filter(const_raw < 0.25)
+length(unique(q1$userKey)) #161
+
+q2 <- summary_happyData %>%
+  filter(const_raw >= 0.25 & const_raw < 0.5)
+length(unique(q2$userKey)) #1102
+
+q3 <- summary_happyData %>%
+  filter(const_raw >= 0.5 & const_raw < 0.75)
+length(unique(q3$userKey)) #1433
+
+q4 <- summary_happyData %>%
+  filter(const_raw >= 0.75 & const_raw <= 1.00)
+length(unique(q4$userKey)) #240
+
+
+# correlation between SD Happy and GAD
+cor.test(q1$sd_RawHappy,q1$GAD,method="spearman") #-0.168, p=0.033
+cor.test(q2$sd_RawHappy,q2$GAD,method="spearman") #0.028, p=0.347
+cor.test(q3$sd_RawHappy,q3$GAD,method="spearman") #0.075, p=0.004
+cor.test(q4$sd_RawHappy,q4$GAD,method="spearman") #0.018, p=0.004
+
+#mood variation is correlated with gad among people with baseline happiness parameters above 0.5
+
+# correlation between RPE and GAD
+cor.test(q1$rpe_raw,q1$GAD,method="spearman") #-0.057, p=0.470
+cor.test(q2$rpe_raw,q2$GAD,method="spearman") #-0.012, p=0.680
+cor.test(q3$rpe_raw,q3$GAD,method="spearman") #-0.037, p=0.163
+cor.test(q4$rpe_raw,q4$GAD,method="spearman") #0.083, p=0.198
+
+#rpe raw is not correlated with GAD among any of the groups
+
+
+#correlation between RPE and SD Happy
+cor.test(q1$rpe_raw,q1$sd_RawHappy,method="spearman") #0.047, p<.0001
+cor.test(q2$rpe_raw,q2$sd_RawHappy,method="spearman") #0.431, p<.0001
+cor.test(q3$rpe_raw,q3$sd_RawHappy,method="spearman") #0.525, p<.0001
+cor.test(q4$rpe_raw,q4$sd_RawHappy,method="spearman") #0.428, p<.0001
+
+#among people with low baseline happiness, sd_Raw Happy is not correlated with RPE
+```
+
+## Linear Modelling - Predicting SD Happiness from Model Parameters
+
+```{r}
+summary_happyData <- na.omit(summary_happyData)
+#absolute model
+m1_happy <- lm(sd_RawHappy~rpe_abs + ev_abs + const_raw + tau_raw,summary_happyData)
+summary(m1_happy)
+
+#absolute model with GAD
+m1_happy_GAD <- lm(sd_RawHappy~rpe_abs + ev_abs + const_raw + tau_raw+ GAD,summary_happyData)
+summary(m1_happy_GAD)
+
+anova(m1_happy,m1_happy_GAD)
+
+# absolute model with PHQ
+m1_happy_PHQ <-  lm(sd_RawHappy~rpe_abs + ev_abs + const_raw + tau_raw+ PHQ,summary_happyData)
+summary(m1_happy_PHQ)
+
+# absolute model with PHQ and GAD
+m1_happy_PHQ_GAD <- lm(sd_RawHappy~rpe_abs + ev_abs + const_raw + tau_raw+ PHQ+GAD,summary_happyData)
+summary(m1_happy_PHQ_GAD)
+
+anova(m1_happy,m1_happy_PHQ)
+
+
+#absolute model
+m2_happy <- lm(sd_RawHappy~rpe_abs + ev_abs + const_drift + tau_drift + drift,summary_happyData)
+summary(m2_happy)
+
+#absolute model with GAD
+m2_happy_GAD <- lm(sd_RawHappy~rpe_abs + ev_abs + const_drift + tau_drift + drift+GAD,summary_happyData)
+summary(m1_happy_GAD)
+
+anova(m2_happy,m2_happy_GAD)
+
+# absolute model with PHQ
+m2_happy_PHQ <-  lm(sd_RawHappy~rpe_abs + ev_abs + const_drift + tau_drift +drift + PHQ,summary_happyData)
+summary(m2_happy_PHQ)
+
+# absolute model with PHQ and GAD
+m2_happy_PHQ_GAD <- lm(sd_RawHappy~rpe_abs + ev_abs + const_drift + tau_drift + drift + PHQ+GAD,summary_happyData)
+summary(m1_happy_PHQ_GAD)
+
+anova(m2_happy,m2_happy_PHQ)
+
+```
+
+## Orthogonalizing
+
+```{r}
+model <- lm(GAD ~ PHQ, data = summary_happyData)
+
+# Extract the residuals
+summary_happyData$GAD_orthogonalized <- residuals(model)
+
+cor.test(summary_happyData$GAD,summary_happyData$GAD_orthogonalized,method="spearman")
+
+m1_happy <- lm(sd_RawHappy~rpe_abs + ev_abs + const_raw + tau_raw,summary_happyData)
+summary(m1_happy)
+
+m1_happy_GAD_ort <- lm(sd_RawHappy~rpe_abs + ev_abs + const_raw + tau_raw + GAD_orthogonalized,summary_happyData)
+summary(m1_happy_GAD_ort)
+
+m1_happy_GAD <- lm(sd_RawHappy~rpe_abs + ev_abs + const_raw + tau_raw + GAD,summary_happyData)
+summary(m1_happy_GAD)
+
+anova(m1_happy_GAD,m1_happy_GAD_ort)
+
+m3_happy_GAD <-  lm(sd_RawHappy~abs(rpe_drift) + abs(ev_drift) + const_drift + tau_drift + drift + GAD_orthogonalized,summary_happyData)
+summary(m1_happy_GAD)
+
+m2_happy_GAD_PHQ <-  lm(sd_RawHappy~rpe_abs + ev_abs + const_raw + tau_raw + GAD_orthogonalized+PHQ,summary_happyData)
+summary(m2_happy_GAD_PHQ)
+
+```
+
+### Outcome and Performance
+
+```{r}
+outcome_data <- happyData %>%
+  group_by(userKey) %>%
+  summarize(outcome=sum(Outcome),
+            rpe_abs=abs(rpe_chosen_raw),
+            ev_abs=abs(ev_chosen_raw),
+            GAD=mean(gad7_total),
+            PHQ=mean(phq8_total),
+            SD_RawHappy = sd(RawHappy, na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy,na.rm=TRUE)) %>% 
+  unique()
+
+cor.test(outcome_data$SD_RawHappy,outcome_data$outcome,method="spearman")
+#variation in happiness is correlated with poorer outcome (p=0.004)
+
+cor.test(outcome_data$mean_RawHappy, outcome_data$outcome,method="spearman")
+#raw happiness is correlated with poorer outcome (p<.0001)
+
+cor.test(outcome_data$GAD, outcome_data$outcome,method="spearman")
+#no significant correlation between anxiety and poorer outcome
+
+cor.test(outcome_data$PHQ, outcome_data$outcome,method="spearman")
+#no significant correlation between depression and poorer outcome
+
+cor.test(outcome_data$rpe_abs, outcome_data$outcome,method="spearman")
+#correlation between rpe and outcome - as rpe sensitivity increases, people do worse
+
+cor.test(outcome_data$ev_abs, outcome_data$outcome,method="spearman")
+#correlation between ev and outcome - as ev sensitivity increases, people do worse
+
+m1 <- lm(SD_RawHappy~rpe_abs+ev_abs+outcome+GAD,data=outcome_data)
+summary(m1)
+```
+
+### Happiness After Wins and Losses
+
+```{r}
+
+data <- T_oneplay_long %>%
+  mutate(TrialType = ifelse(SafeValue > 0, "Gain", "Loss"))
+
+data <- data %>%
+  mutate(
+    RiskyOutcome = case_when(
+      TrialType == "Gain" & Choice == 2 & Outcome == RiskyValue ~ "RiskyWin",
+      TrialType == "Gain" & Choice == 2 & Outcome == 0 ~ "RiskyLoss",
+      TrialType == "Loss" & Choice == 2 & Outcome == 0 ~ "RiskyWin",
+      TrialType == "Loss" & Choice == 2 & Outcome == RiskyValue ~ "RiskyLoss",
+      TRUE ~ NA_character_
+    )
+  )
+
+participant_means <- data %>%
+  filter(!is.na(RiskyOutcome)) %>%
+  group_by(userKey, TrialType, RiskyOutcome) %>%
+  summarise(mean_RawHappy = mean(RawHappy, na.rm = TRUE), .groups = 'drop')
+
+overall_means <- participant_means %>%
+  group_by(TrialType, RiskyOutcome) %>%
+  summarise(
+    Mean_RawHappy = mean(mean_RawHappy, na.rm = TRUE),
+    se_RawHappy = ifelse(n() > 1, sd(mean_RawHappy, na.rm = TRUE) / sqrt(n()), 0),
+    .groups = 'drop'
+  )
+
+ggplot(overall_means, aes(x = interaction(TrialType, RiskyOutcome), y = Mean_RawHappy, fill = TrialType)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), color = "black") +
+  geom_errorbar(aes(ymin = Mean_RawHappy - se_RawHappy, ymax = Mean_RawHappy + se_RawHappy),
+                width = 0.2, position = position_dodge(0.8)) +
+  labs(
+    x = "Condition",
+    y = "Mean RawHappy",
+    title = "Mean RawHappy for Risky-Win and Risky-Loss in Gain and Loss Trials"
+  ) +
+  scale_x_discrete(labels = c("Gain.RiskyWin" = "Gain: Risky-Win", "Gain.RiskyLoss" = "Gain: Risky-Loss",
+                              "Loss.RiskyWin" = "Loss: Risky-Win", "Loss.RiskyLoss" = "Loss: Risky-Loss")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+data <- positive_rpe_raw %>%
+  mutate(
+    OutcomeType = case_when(
+      Choice == 2 & Outcome == RiskyValue & SafeValue > 0 ~ "Winning",
+      Choice == 2 & Outcome == 0 & SafeValue > 0 ~ "Losing",
+      Choice == 2 & Outcome == 0 & SafeValue < 0 ~ "Winning",
+      Choice == 2 & Outcome == RiskyValue & SafeValue < 0 ~ "Losing",
+      TRUE ~ NA_character_
+    )
+  )
+
+participant_means <- data %>%
+  filter(!is.na(OutcomeType)) %>%
+  group_by(userKey, OutcomeType) %>%
+  summarise(mean_RawHappy = mean(RawHappy, na.rm = TRUE), .groups = 'drop')
+
+overall_means <- participant_means %>%
+  group_by(OutcomeType) %>%
+  summarise(
+    Mean_RawHappy = mean(mean_RawHappy, na.rm = TRUE),
+    se_RawHappy = ifelse(n() > 1, sd(mean_RawHappy, na.rm = TRUE) / sqrt(n()), 0),
+    .groups = 'drop'
+  )
+
+ggplot(overall_means, aes(x = OutcomeType, y = Mean_RawHappy, fill = OutcomeType)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), color = "black") +
+  geom_errorbar(aes(ymin = Mean_RawHappy - se_RawHappy, ymax = Mean_RawHappy + se_RawHappy),
+                width = 0.2, position = position_dodge(0.8)) +
+  labs(
+    x = "Outcome",
+    y = "Mean RawHappy",
+    title = "Mean RawHappy for Winning vs Losing (+RPE Subjects)"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Winning" = "lightgreen", "Losing" = "lightcoral")) +
+  guides(fill = FALSE)
+```
+
+### Logistics Regression
+
+```{r}
+data <- summary_happyData %>%
+  mutate(RPE_group = ifelse(rpe_drift < 0, "Negative", "Positive"))
+data <- data %>%
+  mutate(RPE_group = factor(RPE_group, levels = c("Positive", "Negative")))
+
+# Fit the logistic regression model
+logistic_model <- glm(RPE_group ~ GAD, data = data, family = binomial)
+
+# Summarize the model
+summary(logistic_model) # GAD very slightly predicts grouping 
+
+mean(na.omit(neg_rpe_drift$GAD)) #8.37 #GAD is higher among negative rpe participants 
+mean(na.omit(pos_rpe_drift$GAD)) #7.8
+```
+
+## PCA Dimensionality Reduction
+
+```{r}
+T_matrix <- merge(T_survey, T_oneplay_long, by="userKey")
+symptom_matrix <- T_matrix %>%
+  dplyr::select(c(1:18))
+
+symptom_matrix <- symptom_matrix %>%
+  dplyr::select(-2,-11)
+
+symptom_matrix <- symptom_matrix %>%
+  unique() %>%
+  na.omit() %>%
+  dplyr::select(-1)
+```
+
+```{r}
+library(factoextra)
+pca_result <- prcomp(symptom_matrix)
+pc_scores <- as.data.frame(pca_result$x)
+pc_scores <- pc_scores %>%
+  dplyr::select(c(1,2))
+
+
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 50))
+
+variance_explained <- pca_result$sdev^2 / sum(pca_result$sdev^2)
+
+scree_plot_data <- data.frame(
+  Component = 1:length(variance_explained),
+  VarianceExplained = variance_explained
+)
+
+ggplot(scree_plot_data, aes(x = Component, y = VarianceExplained)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_line() +
+  geom_point(size = 2) +
+  labs(
+    title = "Scree Plot",
+    x = "Principal Component",
+    y = "Proportion of Variance Explained"
+  ) +
+  theme_minimal()
+
+
+combined_data <- cbind(pc_scores, symptom_matrix)
+pc_userKey <- combined_data %>%
+  dplyr::select(c(1:3))
+
+T_oneplay_with_pc <- merge(T_oneplay_long, pc_userKey, by="userKey")
+```
+
+### Correlation with SD Happiness
+
+```{r}
+summary <- T_oneplay_with_pc %>%
+  group_by(userKey) %>%
+  summarize(sd_RawHappy = sd(RawHappy,na.rm=TRUE),
+            mean_RawHappy = mean(RawHappy,na.rm=TRUE),
+            GAD = mean(gad7_total,na.rm=TRUE),
+            PHQ = mean(phq8_total,na.rm=TRUE),
+            PC1 = mean(PC1, na.rm=TRUE),
+            PC2 = mean(PC2, na.rm=TRUE))
+
+cor.test(summary$sd_RawHappy,summary$PC1,method="spearman")
+#significantly correlated with PC1 (rho = 0.060, p=0.00081)
+
+cor.test(summary$sd_RawHappy,summary$PC2,method="spearman")
+#significantly correlated with PC2 (rho = 0.085, p<.0001)
+
+cor.test(summary$GAD,summary$PC1,method="spearman")
+#significantly correlated with GAD (rho = 0.943, p<.0001)
+
+cor.test(summary$PHQ,summary$PC1,method="spearman")
+#rho = 0.941, p<.0001
+
+cor.test(summary$GAD,summary$PC2,method="spearman") #0.25, p <.0001
+
+cor.test(summary$PHQ,summary$PC2,method="spearman") #0.-317, p <.0001
+
+
+# principal component 2 (which is correlated with GAD positively and negatively correlated with PHQ????) is more strongly correlated with SD Happiness than PC1 (but PC1 also strong)
+```
