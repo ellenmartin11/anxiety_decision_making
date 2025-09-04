@@ -444,13 +444,13 @@ result$spearman_corr_loss
 
 # model is off for loss domain
 
-result <- winvloss_z_happy_resid_GAD(happyData1, "Gain", "Risky")
-result$summary_long
-result$plot
-result$wilcox_test_gad6plus
-result$wilcox_test_gad_less6 
-result$mw_test_win
-result$mw_test_loss
+#result <- winvloss_z_happy_resid_GAD(happyData1, "Gain", "Risky")
+#result$summary_long
+#result$plot
+#result$wilcox_test_gad6plus
+#result$wilcox_test_gad_less6 
+#result$mw_test_win
+#result$mw_test_loss
 
 # model is overall overestimating happiness (since residual is negative, it means predicted > actual)
 ```
@@ -477,13 +477,13 @@ result$spearman_corr_loss
 
 # model is off for loss domain
 
-result <- winvloss_z_happy_resid_GAD(happyData1, "Loss", "Risky")
-result$summary_long
-result$plot
-result$wilcox_test_gad6plus
-result$wilcox_test_gad_less6 
-result$mw_test_win
-result$mw_test_loss
+#result <- winvloss_z_happy_resid_GAD(happyData1, "Loss", "Risky")
+#result$summary_long
+#result$plot
+#result$wilcox_test_gad6plus
+#result$wilcox_test_gad_less6 
+#result$mw_test_win
+#result$mw_test_loss
 
 # in loss domain, model is overestimating happiness, particularly for low anxiety participants when they win the gamble
 ```
@@ -3028,7 +3028,7 @@ ggplot(summary_choice, aes(x = Choice, y = mean_happy,  color = PHQ_bin)) +
 ```
 
 
-```{r EV and % Gambling and Happiness}
+```{r EV and Percent Gambling and Happiness}
 
 happyData1_ev <- happyData1 %>%
   mutate(SafeEV = SafeProb*SafeValue,
