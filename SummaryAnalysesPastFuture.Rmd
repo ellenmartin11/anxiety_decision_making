@@ -42,9 +42,10 @@ source("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/functions/process_in
 source("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/functions/process_digging_long.R")
 source("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/functions/process_params.R")
 source("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/functions/softmax.R")
+
 ```
 
-```{r Summary Plot % Risk-Taking Based on Future in Gain Domain}
+```{r Summary Plot Percent Risk-Taking Based on Future in Gain Domain}
 
 sample_size = length(unique(happyData1$userKey))
 
@@ -90,7 +91,7 @@ print(fig1a)
 -   Participants without anxiety particularly show the above effect of taking the riskier option more in the gain domain when the future is positive vs negative.
 -   Participants with anxiety show similar behaviour irrespective of future information.
 
-```{r Summary Plot % Risk-Taking Based on Future in Gain Domain and Diagnosis}
+```{r Summary Plot Percent Risk-Taking Based on Future in Gain Domain and Diagnosis}
 
 sample_size = length(unique(happyData1_diag$userKey))
 
@@ -141,7 +142,7 @@ print(fig1b)
 -   Participants with depression diagnosis take more risks when the future is positive vs negative
 -   Participants without depression also do this, but there is less of a difference in the % of risk-taking based on future information.
 
-```{r Summary Plot % Risk-Taking Based on Future in Gain Domain and Depression Diagnosis}
+```{r Summary Plot Percent Risk-Taking Based on Future in Gain Domain and Depression Diagnosis}
 
 sample_size = length(unique(happyData1_diag$userKey))
 
@@ -192,7 +193,7 @@ print(fig1b2)
 -   As with future information, participants without anxiety exhibit different behaviour based on the past island, gambling more on the current gain trial if they previously experienced a loss domain.
 -   Participants with anxiety show similar behaviour based on the past island domains.
 
-```{r Summary Plot % Risk-Taking Based on Past in Gain Domain and Anxiety Diagnosis}
+```{r Summary Plot Percent Risk-Taking Based on Past in Gain Domain and Anxiety Diagnosis}
 
 happyData1_past_diag <- happyData1_diag %>%
   arrange(userKey, TrialNumber) %>%
