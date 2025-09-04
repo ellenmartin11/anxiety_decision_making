@@ -1,7 +1,7 @@
 ---
 title: "DiggingCPC_4"
 author: "Ellen Martin"
-date: "`r Sys.Date()`"
+date: "2025-09-04"
 output: html_document
 ---
 
@@ -3481,4 +3481,5 @@ cor.test(risky_data_females$percent_risky[risky_data_females$Trial == "Loss"], r
 # females gain and loss phq
 cor.test(risky_data_females$percent_risky[risky_data_females$Trial == "Gain"], risky_data_females$PHQ_total[risky_data_females$Trial == "Gain"],method="spearman")
 cor.test(risky_data_females$percent_risky[risky_data_females$Trial == "Loss"], risky_data_females$PHQ_total[risky_data_females$Trial == "Loss"],method="spearman") # no longer correlation between risk taking and PHQ
+
 ```

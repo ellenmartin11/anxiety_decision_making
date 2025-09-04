@@ -1,5 +1,5 @@
 # Decision-Making and Anxiety
-Research project submitted for the Computational Psychiatry Conference (2024) during my time at the Yale Rutledge Lab. Visit https://ellenmartin11.github.io/anxiety_decision_making/cpc_anxiety_happy.html for all code and results. 
+Research project submitted for the Computational Psychiatry Conference (2024) during my time at the Yale Rutledge Lab. Visit https://ellenmartin11.github.io/anxiety_decision_making/SummaryAnalysesPastFuture.html for all code and results. 
 
 ### Dataset Description
 The dataset consists of over 5000 participants' worth of data collected remotely, via smartphone app called the Happiness Project.

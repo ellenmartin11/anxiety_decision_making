@@ -1,7 +1,7 @@
 ---
 title: "Summary Plots Digging"
 author: "Ellen Martin"
-date: "`r Sys.Date()`"
+date: "2025-09-04"
 output: html_document
 ---
 

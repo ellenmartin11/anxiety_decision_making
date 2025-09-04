@@ -1,7 +1,7 @@
 ---
 title: "CPC Poster Code"
 author: "Ellen Martin"
-date: "`r Sys.Date()`"
+date: "2025-09-04"
 output: html_document
 ---
 
@@ -1292,5 +1292,6 @@ print(result$kruskal_tests$kruskal_gain_GAD_less_6) #m.s.
 print(result$kruskal_tests$kruskal_loss_GAD_6_plus) # p=0.0047
 print(result$kruskal_tests$kruskal_loss_GAD_less_6) # p<.0001
 ```
+
 
 
