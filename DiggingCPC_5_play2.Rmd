@@ -146,6 +146,9 @@ happyData1_past <- happyData1_past %>%
 
 sample_size = length(unique(happyData1$userKey))
 
+saveRDS(happyData1, "~/Desktop/Rutledge Lab/ApathyDepression/updatedData/data/happyData/happyData1.rds")
+saveRDS(happyData1_diag, "~/Desktop/Rutledge Lab/ApathyDepression/updatedData/data/happyData/happyData1_diag.rds")
+saveRDS(happyData1_past, "~/Desktop/Rutledge Lab/ApathyDepression/updatedData/data/happyData/happyData1_past.rds")
 ```
 
 ### Reading in 6 Parameter Happiness Model
