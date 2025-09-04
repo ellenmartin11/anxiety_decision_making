@@ -13,7 +13,6 @@ editor: visual
 
 ```{r Reading in Libraries, Paths and Files | echo: FALSE}
 
-
 library(readr)
 library(NatParksPalettes)
 library(ggplot2)
@@ -21,9 +20,9 @@ library(Hmisc) #for computing correlation stuff
 library(knitr) 
 library(tidyverse, warn.conflict=F)
 library(corrplot)
+library(sandwich)
 library(dplyr)
 library(MASS)
-library(sandwich)
 library(lmtest)
 library(broom)
 

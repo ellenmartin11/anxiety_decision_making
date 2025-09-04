@@ -36,17 +36,22 @@ source("functions/softmax.R")
 
 ```{r Data Paths and Merging Data for Play 2 FIRST PLAY}
 # data paths
-data_path <- "C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\data\\happyData\\"
+# data_path <- "C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\data\\happyData\\"
+data_path <- "~/Desktop/Rutledge Lab/ApathyDepression/updatedData/data/happyData/"
 
 ### play one for people with at least two plays - play 1
-one_long_file_z <- paste0(data_path,"z\\THP_uk_DiggingHappy2_first_z_n2194.csv") #zscored
+#one_long_file_z <- paste0(data_path,"z\\THP_uk_DiggingHappy2_first_z_n2194.csv") #zscored
+one_long_file_z <- paste0(data_path,"z/THP_uk_DiggingHappy2_first_z_n2194.csv") #zscored
 
 
 ### parameters and model fits data
-happy_file_one_z <- paste0(data_path, "modelBased\\z\\happy_params4_play2_first_z_n2194.csv")
+#happy_file_one_z <- paste0(data_path, "modelBased\\z\\happy_params4_play2_first_z_n2194.csv")
+happy_file_one_z <- paste0(data_path, "modelBased/z/happy_params4_play2_first_z_n2194.csv")
+
 
 ### survey data
-survey_file <- paste0("C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv")
+#survey_file <- paste0("C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv")
+survey_file <- paste0("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/analyses/uk_general_survey.csv")
 
 ### initial quiz data
 initquiz_file <- paste0(data_path, "THP_uk_initquiz.csv")
@@ -105,7 +110,7 @@ happyData1_diag <- happyData1_diag %>%
                                           diagnosis_depression == 0 ~ "no dep"))
 
 
-length(unique(happyData1_diag$userKey)) # N = 1592
+sample_size = length(unique(happyData1_diag$userKey)) # N = 1592
 
 happyData1_diag$diagnosis_anxiety <- as.factor(happyData1_diag$diagnosis_anxiety)
 happyData1_diag$diagnosis_depression <- as.factor(happyData1_diag$diagnosis_depression)
@@ -149,20 +154,26 @@ summary_data <- risky_data %>%
 
 ```{r Data Paths and Merging Data for Play 3 THIRD PLAY}
 # data paths
-data_path <- "C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\data\\happyData\\"
+#data_path <- "C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\data\\happyData\\"
+data_path <- "~/Desktop/Rutledge Lab/ApathyDepression/updatedData/data/happyData/"
 
 ### play one for people with at least two plays - play 1
-one_long_file_z <- paste0(data_path,"z\\THP_uk_DiggingHappy3_z_n960.csv") #zscored
+#one_long_file_z <- paste0(data_path,"z\\THP_uk_DiggingHappy3_z_n960.csv") #zscored
+one_long_file_z <- paste0(data_path,"z/THP_uk_DiggingHappy3_z_n960.csv") #zscored
 
 ### parameters and model fits data - for play 3 this is the 4 parameter model
-happy_file_one_z <- paste0(data_path, "modelBased\\z\\happy_params4_play3_z_n960.csv")
+#happy_file_one_z <- paste0(data_path, "modelBased\\z\\happy_params4_play3_z_n960.csv")
+happy_file_one_z <- paste0(data_path, "modelBased/z/happy_params4_play3_z_n960.csv")
 
 
 ### parameters and model fits data - for play 3 this is the 6 parameter model
-happy_file_one_z_6 <- paste0(data_path, "modelBased\\z\\happy_params6_play3_z_n960.csv")
+#happy_file_one_z_6 <- paste0(data_path, "modelBased\\z\\happy_params6_play3_z_n960.csv")
+happy_file_one_z_6 <- paste0(data_path, "modelBased/z/happy_params6_play3_z_n960.csv")
 
 ### survey data
-survey_file <- paste0("C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv")
+# survey_file <- paste0("C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv")
+
+survey_file <- paste0("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/analyses/uk_general_survey.csv")
 
 ### initial quiz data
 initquiz_file <- paste0(data_path, "THP_uk_initquiz.csv")

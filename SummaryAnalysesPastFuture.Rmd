@@ -5,9 +5,44 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
-Read in the play 1 data ahead of time using other script.
+Read in the play 2 data ahead of time using other script. (DiggingCPC_5_play2)
 
+Play 2 has 1922 unique participants' worth of data.
 
+### Risk-Taking Behaviour in the Gain Domain, Based on Future Information
+
+-   participants take the riskier option around 50% of the time in gain domains when the future is positive.
+-   when the future is negative, participants take the riskier option less.
+
+```{r Import Data from RDS and Libraries}
+
+happyData1 <- readRDS("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/data/happyData/happyData1.rds")
+happyData1_diag <- readRDS("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/data/happyData/happyData1_diag.rds")
+happyData1_past <- readRDS("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/data/happyData/happyData1_past.rds")
+
+library(readr)
+library(NatParksPalettes)
+library(ggplot2)
+library(Hmisc) #for computing correlation stuff
+library(knitr) 
+library(tidyverse, warn.conflict=F)
+library(corrplot)
+library(dplyr)
+library(MASS)
+library(sandwich)
+library(lmtest)
+library(broom)
+library(dplyr)
+library(gt)
+library(lme4)
+library(dunn.test)
+
+source("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/poster_theme.R") #for figure themes
+source("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/functions/process_initquiz.R")
+source("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/functions/process_digging_long.R")
+source("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/functions/process_params.R")
+source("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/functions/softmax.R")
+```
 
 ```{r Summary Plot % Risk-Taking Based on Future in Gain Domain}
 
@@ -50,7 +85,11 @@ print(fig1a)
 
 ```
 
-### Split by Anxiety vs No Anxiety Diagnosis
+### Risk-Taking in the Gain Domain Based on Future Information and Anxiety Diagnosis
+
+-   Participants without anxiety particularly show the above effect of taking the riskier option more in the gain domain when the future is positive vs negative.
+-   Participants with anxiety show similar behaviour irrespective of future information.
+
 ```{r Summary Plot % Risk-Taking Based on Future in Gain Domain and Diagnosis}
 
 sample_size = length(unique(happyData1_diag$userKey))
@@ -96,9 +135,13 @@ print(fig1b)
 
 ```
 
-### Depression Diagnoses
+### Risk-Taking Behaviour in Gain Domain Based on Future Information and Depression Diagnosis
 
-```{r Summary Plot % Risk-Taking Based on Future in Gain Domain and Diagnosis}
+-   Reversed patten to anxiety diagnosis, where participants with depression exhibit different risk-taking behaviour when the future is positive vs negative in the gain domain.
+-   Participants with depression diagnosis take more risks when the future is positive vs negative
+-   Participants without depression also do this, but there is less of a difference in the % of risk-taking based on future information.
+
+```{r Summary Plot % Risk-Taking Based on Future in Gain Domain and Depression Diagnosis}
 
 sample_size = length(unique(happyData1_diag$userKey))
 
@@ -144,9 +187,12 @@ print(fig1b2)
 
 ```
 
-### Past
+### Risk-Taking Behaviour in Gain Domain Based on Past Information and Anxiety Diagnosis
 
-```{r Summary Plot % Risk-Taking Based on Past in Gain Domain and Diagnosis}
+-   As with future information, participants without anxiety exhibit different behaviour based on the past island, gambling more on the current gain trial if they previously experienced a loss domain.
+-   Participants with anxiety show similar behaviour based on the past island domains.
+
+```{r Summary Plot % Risk-Taking Based on Past in Gain Domain and Anxiety Diagnosis}
 
 happyData1_past_diag <- happyData1_diag %>%
   arrange(userKey, TrialNumber) %>%
@@ -220,6 +266,8 @@ print(fig1c)
 
 ### Happiness with Future (in Loss Domain)
 
+-   z-scored happiness shows decreased current happiness (in the loss domain) when the future is positive vs negative
+
 ```{r Happiness with Future (Loss Domain)}
 sample_size = length(unique(happyData1$userKey))
 
@@ -258,6 +306,12 @@ print(fig2a)
 
 # summary: decreased happiness when future is positive in loss domain
 ```
+
+### Happiness based on Future Information and Past Experience in the Gain Domain
+
+-   In the current gain domain, participants show increased happiness when the past island was a loss domain and when the future island is a loss domain
+-   Happieness is similar regardless of whether the future is a loss or gain island if the past island was a gain domain.
+-   So, if the past island was negative, future information seems to matter in affecting happiness.
 
 ```{r Future and Past Interaction in Happiness in Gain Domain}
 sample_size = length(unique(happyData1_past$userKey))
@@ -301,7 +355,11 @@ print(fig2b)
 # summary: increased gambling when the future is positive vs negative in gain domain. 
 ```
 
-### With Anxiety Diagnoses
+### Happiness based on Future Information and Anxiety Diagnosis in the Loss Domain
+
+-   In the loss domain, people without anxiety show similar happiness levels regardless of whether the future is positive or negative.
+-   People with anxiety are happier when the future is negative vs positive if they are currently in the loss domain.
+-   Perhaps there is a preference for persistence - and participants with anxiety do not like having to switch policies when the island changes if they're in a loss domain.
 
 ```{r Happiness with Future (Loss Domain) and Anxiety}
 sample_size = length(unique(happyData1_diag$userKey))

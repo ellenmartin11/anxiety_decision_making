@@ -37,18 +37,24 @@ source("functions/softmax.R")
 ```{r Data Paths for Play 2}
 
 # RUN EVERYTIME YOU SWITHC PLAYS
-data_path <- "C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\data\\happyData\\"
+#data_path <- "C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\data\\happyData\\"
+data_path <- "~/Desktop/Rutledge Lab/ApathyDepression/updatedData/data/happyData/"
 
 # play one for people with at least one play 
-one_long_file_z <- paste0(data_path,"z\\THP_uk_DiggingHappy2_z_n2214.csv") #zscored
+#one_long_file_z <- paste0(data_path,"z\\THP_uk_DiggingHappy2_z_n2214.csv") #zscored
+one_long_file_z <- paste0(data_path,"z/THP_uk_DiggingHappy2_z_n2214.csv") #zscored
 
 # parameters and model fits data (4 parameter model)
-happy_file_one_z <- paste0(data_path, "modelBased\\z\\happy_params4_play2_z_n2214.csv")
+#happy_file_one_z <- paste0(data_path, "modelBased\\z\\happy_params4_play2_z_n2214.csv")
+happy_file_one_z <- paste0(data_path, "modelBased/z/happy_params4_play2_z_n2214.csv")
+
 # 6 parameter model
-happy_file_one_z_6 <- paste0(data_path, "modelBased\\z\\happy_params6_play2_z_n2214.csv")
+#happy_file_one_z_6 <- paste0(data_path, "modelBased\\z\\happy_params6_play2_z_n2214.csv")
+happy_file_one_z_6 <- paste0(data_path, "modelBased/z/happy_params6_play2_z_n2214.csv")
 
 # survey data
-survey_file <- paste0("C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv")
+#survey_file <- paste0("C:\\Users\\Ellen Martin\\OneDrive\\Desktop\\Rutledge Lab\\ApathyDepression\\updatedData\\analyses\\uk_general_survey.csv")
+survey_file <- paste0("~/Desktop/Rutledge Lab/ApathyDepression/updatedData/analyses/uk_general_survey.csv")
 
 # initial quiz data
 initquiz_file <- paste0(data_path, "THP_uk_initquiz.csv")
@@ -1017,7 +1023,7 @@ combined_risky <- bind_rows(positive_risky, negative_risky)
 
     scale_color_manual(values = c("PHQ 7+" = "red", "PHQ <7" = "pink")) +
     labs(
-      title = "% Risky Choices based on Future (Play 4) N=1922",
+      title = "% Risky Choices based on Future (Play 2) N=1922",
       x = "Future",
       y = "% Risky Choices"
     ) +
@@ -1068,7 +1074,7 @@ combined_risky <- na.omit(combined_risky)
     geom_hline(yintercept = 50, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
       scale_color_manual(values = c("0-4" = "#FFC0CB", "5-9" = "#CC9AA2", "10-14" = "#99737A", "15-24" = "#664D51")) +
     labs(
-      title = "% Risky Choices based on Future (Play 4) N=1922",
+      title = "% Risky Choices based on Future (Play 2) N=1922",
       x = "Future",
       y = "% Risky Choices"
     ) +
@@ -1307,7 +1313,7 @@ gain_ANX_long <- gain_ANX %>%
     values_to = "percent_risky"     # New column for percent risky choices
   )
 
-wilcox.test(gain_ANX_long$percent_risky~gain_ANX_long$Future,paired=FALSE)
+wilcox.test(gain_ANX_long$percent_risky~gain_ANX_long$Future)
 
 
 gain_lowANX <- gain_data %>%
@@ -1321,7 +1327,7 @@ gain_lowANX_long <- gain_lowANX %>%
   )
 
 
-wilcox.test(gain_lowANX_long$percent_risky~gain_lowANX_long$Future,paired=FALSE)
+wilcox.test(gain_lowANX_long$percent_risky~gain_lowANX_long$Future)
 
 
 # IN LOSS DOMAIN
@@ -1346,7 +1352,7 @@ loss_ANX_long <- loss_ANX %>%
     values_to = "percent_risky"     # New column for percent risky choices
   )
 
-wilcox.test(loss_ANX_long$percent_risky~loss_ANX_long$Future,paired=FALSE)
+wilcox.test(loss_ANX_long$percent_risky~loss_ANX_long$Future)
 
 
 loss_lowANX <- loss_data %>%
@@ -1360,7 +1366,7 @@ loss_lowANX_long <- loss_lowANX %>%
   )
 
 
-wilcox.test(loss_lowANX_long$percent_risky~loss_lowANX_long$Future,paired=FALSE)
+wilcox.test(loss_lowANX_long$percent_risky~loss_lowANX_long$Future)
 
 
 
@@ -1390,13 +1396,13 @@ positive_future_long <- positive_future_data %>%
 positive_future_anx <- positive_future_long %>%
   filter(GAD_binary == "GAD 6+")
 
-wilcox.test(percent_risky ~ Domain, data = positive_future_anx, paired = FALSE)
+wilcox.test(percent_risky ~ Domain, data = positive_future_anx)
 
 # Repeat for GAD <5 group
 positive_future_non_anx <- positive_future_long %>%
   filter(GAD_binary == "GAD <6")
 
-wilcox.test(percent_risky ~ Domain,  data = positive_future_non_anx, paired =FALSE)
+wilcox.test(percent_risky ~ Domain,  data = positive_future_non_anx)
 
 
 ## for negative future
@@ -1422,13 +1428,13 @@ negative_future_long <- negative_future_data %>%
 negative_future_anx <- negative_future_long %>%
   filter(GAD_binary == "GAD 6+")
 
-wilcox.test(percent_risky ~ Domain, data = negative_future_anx, paired = FALSE)
+wilcox.test(percent_risky ~ Domain, data = negative_future_anx)
 
 # Repeat for GAD <5 group
 negative_future_non_anx <- negative_future_long %>%
   filter(GAD_binary == "GAD <6")
 
-wilcox.test(percent_risky ~ Domain,  data = negative_future_non_anx, paired =FALSE)
+wilcox.test(percent_risky ~ Domain,  data = negative_future_non_anx)
 ```
 
 
@@ -1965,7 +1971,7 @@ gain_ANX_long <- gain_ANX %>%
   )
 
 
-wilcox.test(gain_ANX_long$mean_happiness~gain_ANX_long$Future,paired=FALSE)
+wilcox.test(gain_ANX_long$mean_happiness~gain_ANX_long$Future)
 
 
 
@@ -1979,7 +1985,7 @@ gain_lowANX_long <- gain_lowANX %>%
     values_to = "mean_happiness"     # New column for percent risky choices
   )
 
-wilcox.test(gain_lowANX_long$mean_happiness~gain_lowANX_long$Future,paired=FALSE)
+wilcox.test(gain_lowANX_long$mean_happiness~gain_lowANX_long$Future)
 
 #loss
 loss_data <- happyData1 %>%
@@ -2002,7 +2008,7 @@ loss_ANX_long <- loss_ANX %>%
   )
 
 
-wilcox.test(loss_ANX_long$mean_happiness~loss_ANX_long$Future,paired=FALSE)
+wilcox.test(loss_ANX_long$mean_happiness~loss_ANX_long$Future)
 
 
 
@@ -2016,7 +2022,7 @@ loss_lowANX_long <- loss_lowANX %>%
     values_to = "mean_happiness"     # New column for percent risky choices
   )
 
-wilcox.test(loss_lowANX_long$mean_happiness~loss_lowANX_long$Future,paired=FALSE)
+wilcox.test(loss_lowANX_long$mean_happiness~loss_lowANX_long$Future)
 
 
 
@@ -2043,13 +2049,13 @@ positive_future_long <- positive_future_data %>%
 positive_future_anx <- positive_future_long %>%
   filter(GAD_binary == "GAD 6+")
 
-wilcox.test(mean_happiness ~ Domain, data = positive_future_anx, paired = FALSE)
+wilcox.test(mean_happiness ~ Domain, data = positive_future_anx)
 
 # Repeat for GAD <5 group
 positive_future_non_anx <- positive_future_long %>%
   filter(GAD_binary == "GAD <6")
 
-wilcox.test(mean_happiness ~ Domain,  data = positive_future_non_anx, paired =FALSE)
+wilcox.test(mean_happiness ~ Domain,  data = positive_future_non_anx)
 
 
 # When future is negaative in gain vs loss domain
@@ -2073,13 +2079,13 @@ negative_future_long <- negative_future_data %>%
 negative_future_anx <- negative_future_long %>%
   filter(GAD_binary == "GAD 6+")
 
-wilcox.test(mean_happiness ~ Domain, data = negative_future_anx, paired = FALSE)
+wilcox.test(mean_happiness ~ Domain, data = negative_future_anx)
 
 # Repeat for GAD <5 group
 negative_future_non_anx <- negative_future_long %>%
   filter(GAD_binary == "GAD <6")
 
-wilcox.test(mean_happiness ~ Domain,  data = negative_future_non_anx, paired =FALSE)
+wilcox.test(mean_happiness ~ Domain,  data = negative_future_non_anx)
 
 
 
@@ -2106,7 +2112,7 @@ gain_DEP_long <- gain_DEP %>%
   )
 
 
-wilcox.test(gain_DEP_long$mean_happiness~gain_DEP_long$Future,paired=FALSE)
+wilcox.test(gain_DEP_long$mean_happiness~gain_DEP_long$Future)
 
 
 
@@ -2120,7 +2126,7 @@ gain_lowDEP_long <- gain_lowDEP %>%
     values_to = "mean_happiness"     # New column for percent risky choices
   )
 
-wilcox.test(gain_lowDEP_long$mean_happiness~gain_lowDEP_long$Future,paired=FALSE)
+wilcox.test(gain_lowDEP_long$mean_happiness~gain_lowDEP_long$Future)
 
 #loss
 loss_data <- happyData1 %>%
@@ -2143,7 +2149,7 @@ loss_DEP_long <- loss_DEP %>%
   )
 
 
-wilcox.test(loss_DEP_long$mean_happiness~loss_DEP_long$Future,paired=FALSE)
+wilcox.test(loss_DEP_long$mean_happiness~loss_DEP_long$Future)
 
 
 
@@ -2157,7 +2163,7 @@ loss_lowDEP_long <- loss_lowDEP %>%
     values_to = "mean_happiness"     # New column for percent risky choices
   )
 
-wilcox.test(loss_lowDEP_long$mean_happiness~loss_lowDEP_long$Future,paired=FALSE)
+wilcox.test(loss_lowDEP_long$mean_happiness~loss_lowDEP_long$Future)
 
 
 
@@ -2184,13 +2190,13 @@ positive_future_long <- positive_future_data %>%
 positive_future_dep <- positive_future_long %>%
   filter(PHQ_binary == "PHQ 7+")
 
-wilcox.test(mean_happiness ~ Domain, data = positive_future_dep, paired = FALSE)
+wilcox.test(mean_happiness ~ Domain, data = positive_future_dep)
 
 # Repeat for GAD <5 group
 positive_future_non_dep <- positive_future_long %>%
   filter(PHQ_binary == "PHQ <7")
 
-wilcox.test(mean_happiness ~ Domain,  data = positive_future_non_dep, paired =FALSE)
+wilcox.test(mean_happiness ~ Domain,  data = positive_future_non_dep)
 
 
 # When future is negaative in gain vs loss domain
@@ -2214,13 +2220,13 @@ negative_future_long <- negative_future_data %>%
 negative_future_dep <- negative_future_long %>%
   filter(PHQ_binary == "PHQ 7+")
 
-wilcox.test(mean_happiness ~ Domain, data = negative_future_dep, paired = FALSE)
+wilcox.test(mean_happiness ~ Domain, data = negative_future_dep)
 
 # Repeat for GAD <5 group
 negative_future_non_dep <- negative_future_long %>%
   filter(PHQ_binary == "PHQ <7")
 
-wilcox.test(mean_happiness ~ Domain,  data = negative_future_non_dep, paired =FALSE)
+wilcox.test(mean_happiness ~ Domain,  data = negative_future_non_dep)
 
 ```
 
@@ -2708,10 +2714,10 @@ summary_choice <- choice_combined %>%
 
 # Plot happiness based on choice, future, and trial
 ggplot(summary_choice, aes(x = Choice, y = mean_happy, color = Trial)) +
-  geom_point(position = position_dodge(1), width = 0.7) +
+  geom_point( width = 0.7) +
   geom_errorbar(aes(ymin = mean_happy - sem_happy, ymax = mean_happy + sem_happy),
-                position = position_dodge(1), width = 0.2) + 
-  geom_point(aes(y = mean_predhappy), color = "lightblue", shape = 8, size = 3, position = position_dodge(1)) +
+                width = 0.2) + 
+  geom_point(aes(y = mean_predhappy), color = "lightblue", shape = 8, size = 3) +
   geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add a dotted line at y=0
   labs(
     title = "Happiness (z-scored) Based on Choice and Trial",
