@@ -38,6 +38,7 @@ The dataset consists of over 5000 participants' worth of data collected remotely
 - When including current trial information, people were happiest when currently in a gain domain, with a loss domain upcoming.
 - People were least happy when currently in a loss domain, with a positive future upcoming.
 - There may be an interaction with depression level, where people with PHQ 7+ were significantly more unhappy (p < 0.001) when currently in a loss domain, with a positive future upcoming.
+- This also seemed to be associated with anxiety diagnosis.
 
 ### Gender Differences
 - In the gain domain, women gamble more than men.
